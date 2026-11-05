@@ -64,6 +64,13 @@ const cfg={url:"http://x/v1",model:"m"};
   T("template mode still uses build_site",(bodies[0].tools||[]).some(t=>t.function.name==="build_site")&&/build_site فورًا/.test(bodies[0].messages[0].content));
   vm.runInContext("this.pickDirection=pickDirection;this.DESIGN_DIRS=DESIGN_DIRS",c);const all=c.DESIGN_DIRS.filter(d=>/clinic/.test(d.tags)).map(d=>d.n);const seen=new Set();for(let k=0;k<40;k++)seen.add(c.pickDirection("موقع لعيادة اسنان",all.slice(1).join(" ")).n);
   T("design direction fits the business and avoids used ones",seen.size===1&&seen.has(all[0]));}
+  // key sync: a key deleted on another device stays deleted
+  const mkM=()=>{const mc={};vm.createContext(mc);vm.runInContext('const KEY_PROVS=["openrouter","groq"];var cfg;'+html.match(/function mergeKeys[\s\S]*?return ch\}/)[0]+';this.m=(c,o,f)=>{cfg=c;const ch=mergeKeys(o,f);return{ch,cfg}}',mc);return mc.m};
+  const mm=mkM();let r_=mm({kt:100,key:"old",keys:{openrouter:"old",groq:"g"}},{kt:200,keys:{openrouter:"",groq:"g"}});
+  T("keys: newer copy deletes a key (and the active key)",r_.ch&&r_.cfg.keys.openrouter===""&&r_.cfg.key===""&&r_.cfg.kt===200);
+  r_=mm({kt:300,keys:{openrouter:"",groq:"g"}},{kt:200,keys:{openrouter:"old",groq:"g"}});T("keys: older copy cannot bring a deleted key back",!r_.ch&&r_.cfg.keys.openrouter==="");
+  r_=mm({keys:{openrouter:"",groq:"mine"}},{keys:{openrouter:"x",groq:"theirs"}});T("keys: copy from older version only fills empty boxes",r_.cfg.keys.openrouter==="x"&&r_.cfg.keys.groq==="mine");
+  r_=mm({kt:50,keys:{openrouter:"typed",groq:""}},{kt:900,keys:{openrouter:"",groq:"c"}},true);T("keys: first login keeps keys typed before login",r_.cfg.keys.openrouter==="typed"&&r_.cfg.keys.groq==="c"&&r_.cfg.kt>900);
   // ZIP integrity (needs python3 or unzip; otherwise reported as skipped, not passed)
   const zc={TextEncoder,Blob,Uint8Array,DataView,ArrayBuffer};vm.createContext(zc);vm.runInContext(zipSrc+";this.makeZip=makeZip;",zc);
   const files=[{name:"app.py",code:"print('مرحبا')\n"},{name:"templates/index.html",code:"<h1>أهلاً</h1>".repeat(500)},{name:"static/style.css",code:""}];

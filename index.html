@@ -1355,16 +1355,16 @@ function openOnServer(){location.href=SERVER_URL+"#wlcfg="+encodeURIComponent(ex
 if(VIA_SERVER&&location.hash.startsWith("#wlcfg=")){const t=decodeURIComponent(location.hash.slice(7));window.history.replaceState(null,"",location.pathname);if(importCfg(t)){setTimeout(()=>{tab("settings");$("#s-testall").click()},300)}}
 if(!VIA_SERVER&&location.protocol==="file:"){fetch(SERVER_URL+"api/health",{mode:"no-cors",cache:"no-store"}).then(()=>{const b=document.createElement("button");b.type="button";b.id="srv-go";b.className="srv-go";b.textContent="🟢 السيرفر شغال · افتح Weblume منه (مفاتيحك هتتنقل لوحدها)";b.onclick=openOnServer;document.querySelector("main").prepend(b)}).catch(()=>{})}
 $("#s-testall").onclick=async()=>{const b=$("#s-testall");b.disabled=true;b.textContent="بيختبر…";await Promise.all(PROV_ORDER.map(testOne));b.disabled=false;b.textContent="اختبر الكل"};
-function readCfg(){const keys=Object.assign({},cfg.keys);KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)keys[p]=el.value.trim()});const url=$("#s-url").value.trim(),model=$("#s-model").value.trim();let key=$("#s-key").value.trim();const pv=provOf({url});if(pv&&pv!=="local"&&!key&&keys[pv])key=keys[pv];const pm=Object.assign({},cfg.pm);if(pv&&model)pm[pv]=model;cfg={url,model,key,fast:$("#s-fast").checked,dl:$("#s-dl").checked,fb:$("#s-fb").checked,smart:$("#s-smart").checked,tpl:!$("#s-free").checked,keys,pm,mm31:1}}
+function readCfg(){const keys=Object.assign({},cfg.keys);KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)keys[p]=el.value.trim()});const url=$("#s-url").value.trim(),model=$("#s-model").value.trim();let key=$("#s-key").value.trim();const pv=provOf({url});if(pv&&pv!=="local"&&!key&&keys[pv])key=keys[pv];const pm=Object.assign({},cfg.pm);if(pv&&model)pm[pv]=model;cfg={url,model,key,fast:$("#s-fast").checked,dl:$("#s-dl").checked,fb:$("#s-fb").checked,smart:$("#s-smart").checked,tpl:!$("#s-free").checked,keys,pm,mm31:1,kt:cfg.kt||0}}
 function applyProvider(p,model){readCfg();const P=PROVIDERS[p];cfg=Object.assign({},cfg,{url:P.url,model:model||cfg.pm[p]||P.model,key:p==="local"?"":(cfg.keys[p]||""),fast:p==="local"});fillCfg();store.set("agent_cfg_v1",cfg);saveServer();setModel();const st=$("#status");st.style.whiteSpace="pre-wrap";
   st.textContent=p!=="local"&&!cfg.keys[p]?"⚠️ اتحوّل على "+P.label+"، بس لازم تحط مفتاح "+P.label+" في الخانة بتاعته.":"✅ اتحوّل على "+P.label+" ("+cfg.model+").";checkModel()}
 PROV_ORDER.forEach(p=>{const b=document.getElementById("p-"+p);if(b)b.onclick=()=>applyProvider(p)});
-KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)el.addEventListener("input",()=>{if(provOf({url:$("#s-url").value})===p)$("#s-key").value=el.value.trim();delete MODEL_CACHE[p];const st=document.getElementById("st-"+p);if(st)delete st.dataset.t;persist()})});
+KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)el.addEventListener("input",()=>{if(provOf({url:$("#s-url").value})===p)$("#s-key").value=el.value.trim();delete MODEL_CACHE[p];const st=document.getElementById("st-"+p);if(st)delete st.dataset.t;cfg.kt=Date.now();persist()})});
 const MODEL_CACHE={};
 fillCfg();
 function loadServerSettings(){$("#keys-hint").textContent="🔒 المفاتيح محفوظة في ملف على جهازك (weblume-settings.json)، ومش هتضيع لو المتصفح اتمسح.";
   return fetch(SRV_BASE+"/api/settings",{cache:"no-store"}).then(r=>r.ok?r.json():{}).then(o=>{if(!o||typeof o!=="object")return;let ch=false;const hadAny=KEY_PROVS.some(p=>cfg.keys[p]);
-    if(o.keys&&typeof o.keys==="object")KEY_PROVS.forEach(p=>{if(typeof o.keys[p]==="string"&&o.keys[p]&&!cfg.keys[p]){cfg.keys[p]=o.keys[p];ch=true}});
+    if(o.keys&&typeof o.keys==="object")ch=mergeKeys(o,false);
     if(o.pm&&typeof o.pm==="object")Object.keys(o.pm).forEach(k=>{if(PROVIDERS[k]&&!cfg.pm[k]&&typeof o.pm[k]==="string"){cfg.pm[k]=o.pm[k];ch=true}});
     if(!hadAny&&ch){if(typeof o.smart==="boolean")cfg.smart=o.smart;if(typeof o.fb==="boolean")cfg.fb=o.fb;if(typeof o.dl==="boolean")cfg.dl=o.dl;
       if(typeof o.url==="string"&&typeof o.model==="string"){const pv=provOf({url:o.url});if(pv){cfg.url=PROVIDERS[pv].url;cfg.model=o.model}}}
@@ -1395,17 +1395,23 @@ async function supaFetch(path,o){o=o||{};const h=Object.assign({apikey:supa.anon
   if(!r.ok){const m=(j&&(j.msg||j.message||j.error_description||j.error))||("HTTP "+r.status);throw Object.assign(new Error(String(m)),{status:r.status})}return j}
 function setSess(j){sess={access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Date.now()+((j.expires_in||3600)-60)*1000,user:{id:j.user.id,email:j.user.email}};store.set("wl_sess_v1",sess)}
 async function ensureFresh(){if(!sess)throw new Error("مش مسجّل دخول");if(Date.now()<sess.expires_at)return;const j=await supaFetch("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:{refresh_token:sess.refresh_token}});setSess(j)}
-function cloudPayload(){return {keys:cfg.keys,pm:cfg.pm,smart:!!cfg.smart,fb:cfg.fb!==false,dl:cfg.dl!==false,tpl:!!cfg.tpl}}
+function cloudPayload(){return {kt:cfg.kt||0,keys:cfg.keys,pm:cfg.pm,smart:!!cfg.smart,fb:cfg.fb!==false,dl:cfg.dl!==false,tpl:!!cfg.tpl}}
 async function pushCloud(){if(!sess||!encKey||!supaReady())return;await ensureFresh();const data=await encJSON(cloudPayload());
   await supaFetch("/rest/v1/user_settings?on_conflict=user_id",{method:"POST",auth:true,headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:{user_id:sess.user.id,data,updated_at:new Date().toISOString()}});acctMsg("✅ متزامن · "+new Date().toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}))}
 function pushCloudSoon(){if(!sess||!encKey)return;clearTimeout(cpT);cpT=setTimeout(()=>pushCloud().catch(e=>acctMsg("⚠️ المزامنة وقفت: "+e.message)),900)}
-function applyCloud(o){if(!o||typeof o!=="object")return;if(o.keys&&typeof o.keys==="object")KEY_PROVS.forEach(p=>{if(typeof o.keys[p]==="string"&&o.keys[p])cfg.keys[p]=o.keys[p]});
+// Keys copies (cloud, local file) carry kt = time of the last key edit. A newer copy replaces the keys as a whole,
+// so a key deleted on one device stays deleted. A copy without kt (older version), or the first login on a device, only fills empty boxes.
+function mergeKeys(o,first){const newer=!first&&typeof o.kt==="number"&&o.kt>(cfg.kt||0),old=first||typeof o.kt!=="number";let ch=false;
+  KEY_PROVS.forEach(p=>{const v=o.keys[p],cur=cfg.keys[p]||"";if(typeof v!=="string"||v===cur)return;
+    if(newer||old&&v&&!cur){if(cfg.key&&cfg.key===cur)cfg.key=v;cfg.keys[p]=v;ch=true}});
+  if(newer)cfg.kt=o.kt;else if(first&&ch)cfg.kt=Date.now();return ch}
+function applyCloud(o,first){if(!o||typeof o!=="object")return;if(o.keys&&typeof o.keys==="object")mergeKeys(o,first);
   if(o.pm&&typeof o.pm==="object")Object.keys(o.pm).forEach(k=>{if(PROVIDERS[k]&&typeof o.pm[k]==="string"&&o.pm[k])cfg.pm[k]=o.pm[k]});
   ["smart","fb","dl"].forEach(k=>{if(typeof o[k]==="boolean")cfg[k]=o[k]});
   const pv=provOf(cfg);if(pv&&pv!=="local")cfg.key=cfg.keys[pv]||cfg.key;
   store.set("agent_cfg_v1",cfg);fillCfg();setModel();PROV_ORDER.forEach(p=>{const e_=document.getElementById("st-"+p);if(e_)delete e_.dataset.t});markPreset()}
-async function pullCloud(){await ensureFresh();const rows=await supaFetch("/rest/v1/user_settings?select=data,updated_at",{auth:true});
-  if(Array.isArray(rows)&&rows[0]&&rows[0].data){let o;try{o=await decJSON(rows[0].data)}catch(e){throw new Error("مقدرتش أفك تشفير مفاتيحك. الباسورد اتغيّر؟")}applyCloud(o)}
+async function pullCloud(first){await ensureFresh();const rows=await supaFetch("/rest/v1/user_settings?select=data,updated_at",{auth:true});
+  if(Array.isArray(rows)&&rows[0]&&rows[0].data){let o;try{o=await decJSON(rows[0].data)}catch(e){throw new Error("مقدرتش أفك تشفير مفاتيحك. الباسورد اتغيّر؟")}applyCloud(o,first)}
   await pushCloud()}
 function acctMsg(t){$("#acct-msg").textContent=t}
 function setAcct(){const inn=!!(sess&&encKey);$("#acct-card").classList.toggle("in",inn);$("#acct-form").hidden=inn;$("#acct-out").hidden=!inn;
@@ -1418,7 +1424,7 @@ async function acctLogin(isNew){const email=$("#acct-email").value.trim(),pw=$("
   try{if(isNew){const j=await supaFetch("/auth/v1/signup",{method:"POST",body:{email,password:pw}});
       if(!j||!j.access_token){acctMsg("📧 اتبعتلك إيميل تأكيد. افتحه ودوس على اللينك، وبعدين ارجع دوس «تسجيل دخول».");return}setSess(j)}
     else setSess(await supaFetch("/auth/v1/token?grant_type=password",{method:"POST",body:{email,password:pw}}));
-    encKey=await deriveKey(email,pw);store.set("wl_ek_v1",await crypto.subtle.exportKey("jwk",encKey));$("#acct-pass").value="";setAcct();await pullCloud()}
+    encKey=await deriveKey(email,pw);store.set("wl_ek_v1",await crypto.subtle.exportKey("jwk",encKey));$("#acct-pass").value="";setAcct();await pullCloud(true)}
   catch(e){const m=String(e.message||"");acctMsg("❌ "+(/invalid login|invalid_grant|credentials/i.test(m)?"الإيميل أو الباسورد غلط.":/not confirmed/i.test(m)?"لسه ماأكدتش الإيميل. افتح الإيميل ودوس على لينك التأكيد.":/already registered|already exists/i.test(m)?"الإيميل ده عنده حساب. دوس «تسجيل دخول».":/relation|user_settings/i.test(m)?"جدول user_settings مش موجود في Supabase. شغّل كود SQL.":m))}}
 $("#acct-in").onclick=()=>acctLogin(false);$("#acct-up").onclick=()=>acctLogin(true);
 $("#acct-pass").addEventListener("keydown",ev=>{if(ev.key==="Enter")acctLogin(false)});
@@ -1427,7 +1433,7 @@ $("#sb-url").value=supa.url||"";$("#sb-anon").value=supa.anon||"";
 ["#sb-url","#sb-anon"].forEach(id=>$(id).addEventListener("input",()=>{supa={url:$("#sb-url").value.trim(),anon:$("#sb-anon").value.trim()};store.set("wl_supa_v1",supa);setAcct()}));
 (async()=>{setAcct();const jwk=store.get("wl_ek_v1",null);if(sess&&jwk&&supaReady()&&window.crypto&&crypto.subtle){try{encKey=await crypto.subtle.importKey("jwk",jwk,{name:"AES-GCM"},true,["encrypt","decrypt"]);setAcct();await pullCloud()}catch(e){if(e.status===400||e.status===401){sess=null;encKey=null;store.set("wl_sess_v1",null);setAcct();acctMsg("⚠️ الجلسة خلصت، سجّل دخول تاني.")}else acctMsg("⚠️ المزامنة وقفت: "+e.message)}}})();
 $("#s-save").onclick=()=>{persist();$("#status").textContent="✅ اتحفظ."};
-let ssT=0;function saveServer(){pushCloudSoon();if(!SRV)return;clearTimeout(ssT);ssT=setTimeout(()=>{fetch(SRV_BASE+"/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({keys:cfg.keys,pm:cfg.pm,smart:!!cfg.smart,fb:cfg.fb!==false,dl:cfg.dl!==false,url:cfg.url,model:cfg.model})}).catch(()=>{})},400)}
+let ssT=0;function saveServer(){pushCloudSoon();if(!SRV)return;clearTimeout(ssT);ssT=setTimeout(()=>{fetch(SRV_BASE+"/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kt:cfg.kt||0,keys:cfg.keys,pm:cfg.pm,smart:!!cfg.smart,fb:cfg.fb!==false,dl:cfg.dl!==false,url:cfg.url,model:cfg.model})}).catch(()=>{})},400)}
 function persist(){readCfg();store.set("agent_cfg_v1",cfg);setModel();markPreset();saveServer()}
 ["#s-url","#s-model","#s-key"].forEach(i=>$(i).addEventListener("input",persist));
 ["#s-fast","#s-dl","#s-fb","#s-smart","#s-free"].forEach(i=>$(i).addEventListener("change",persist));

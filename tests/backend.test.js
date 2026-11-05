@@ -118,6 +118,9 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"POST","/api/settings",{keys:{groq:"gsk_x1234567",evil$:"no"},pm:{groq:"m"},smart:true,junk:"drop"},{h:{Host:"127.0.0.1:"+p}});
   r=await call(p,"GET","/api/settings",null,{h:{Host:"localhost:"+p}});T("settings: saved, cleaned, readable",r.s===200&&r.j.keys.groq==="gsk_x1234567"&&!("evil$" in r.j.keys)&&r.j.smart===true&&!("junk" in r.j));
   r=await call(p,"GET","/api/settings",null,{h:{Host:"attacker.example:"+p}});T("settings: foreign Host rejected (DNS rebinding)",r.s===403);
+  const rb_={Host:"attacker.example:"+p,Origin:"http://attacker.example:"+p};
+  T("every /api route: foreign Host rejected (DNS rebinding cannot spend .env keys)",(await call(p,"POST","/api/images",{prompt:"x"},{h:rb_})).s===403&&(await call(p,"POST","/api/video/jobs",{prompt:"x"},{h:rb_})).s===403&&(await call(p,"POST","/api/llm/nvidia/chat/completions",{model:"m"},{h:rb_})).s===403);
+  r=await call(p,"POST","/api/settings",{kt:123,keys:{groq:""}},{h:{Host:"127.0.0.1:"+p}});r=await call(p,"GET","/api/settings",null,{h:{Host:"127.0.0.1:"+p}});T("settings: key-edit time and cleared key saved",r.j.kt===123&&r.j.keys.groq==="");
   r=await call(p,"POST","/api/settings",{keys:{groq:"x"}},{h:{Host:"127.0.0.1:"+p,Origin:"https://evil.example"}});T("settings: foreign Origin cannot write",r.s===403);
   // hosted copy (GitHub Pages) may use the local server; other sites may not
   r=await call(p,"OPTIONS","/api/llm/nvidia/chat/completions",null,{h:{Host:"127.0.0.1:"+p,Origin:"https://weblume-ai.github.io","Access-Control-Request-Private-Network":"true"}});
