@@ -73,6 +73,50 @@ async function streamFile(req,res,id){
   for(const k of["content-length","content-range","accept-ranges"]){const v=r.headers.get(k);if(v)o[k]=v}
   res.writeHead(r.status,o);Readable.fromWeb(r.body).on("error",()=>res.destroy()).pipe(res);
 }
+// Web search, free and keyless: DuckDuckGo's HTML results page, parsed here. SEARCH_BASE exists for tests only.
+const SEARCH_BASE=()=>process.env.SEARCH_BASE||"https://html.duckduckgo.com/html/";
+const unent=s=>String(s).replace(/<[^>]*>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#x27;|&#39;/g,"'").replace(/&nbsp;/g," ").replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/\s+/g," ").trim();
+function parseDDG(html){const out=[];
+  for(const part of String(html).split(/class="result__a"/).slice(1)){
+    const h=part.match(/href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);if(!h)continue;
+    let u=unent(h[1]);const g=u.match(/[?&]uddg=([^&]+)/);if(g)u=decodeURIComponent(g[1]);if(u.startsWith("//"))u="https:"+u;
+    if(!/^https?:\/\//.test(u)||/^https?:\/\/(\w+\.)?duckduckgo\.com\//.test(u))continue; // ads point back to duckduckgo.com/y.js
+    const s=part.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(a|div|td)>/);
+    out.push({title:unent(h[2]).slice(0,200),url:u.slice(0,500),snippet:s?unent(s[1]).slice(0,400):""});if(out.length>=8)break}
+  return out}
+async function upstream(url,opt){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),15000);
+  try{return await fetch(url,{...opt,signal:ac.signal,redirect:"error"})}finally{clearTimeout(t)}}
+async function search(q){let r;
+  try{r=await upstream(SEARCH_BASE()+"?q="+encodeURIComponent(q),{headers:{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36","Accept-Language":"ar,en;q=0.8"}})}
+  catch(e){return{code:e.name==="AbortError"?504:502,body:{error:"مش قادر أوصل لمحرك البحث."}}}
+  if(!r.ok)return{code:502,body:{error:"البحث مش متاح دلوقتي ("+r.status+")."}};
+  return{code:200,body:{results:parseDDG(await r.text())}}}
+// Weblume site factory (weblume-company/server.py on this laptop). Proxied here because it only sends CORS to GitHub Pages.
+const FACTORY=()=>process.env.WEBLUME_FACTORY_URL||"http://127.0.0.1:8501";
+const FACTORY_DOWN={code:503,body:{error:"مصنع المواقع مش شغال. شغّل start.bat بتاع weblume-company."}};
+async function factoryCall(method,sub,body){let r;
+  try{r=await upstream(FACTORY()+sub,{method,headers:body?{"Content-Type":"application/json"}:{},body:body&&JSON.stringify(body)})}catch(e){return null}
+  const j=await r.json().catch(()=>({}));return{ok:r.ok,status:r.status,j}}
+async function factoryStart(goal){const r=await factoryCall("POST","/api/start",{goal,mode:"whole"});if(!r)return FACTORY_DOWN;
+  if(!r.ok||typeof r.j.run!=="string")return{code:r.status>=400&&r.status<500?r.status:502,body:{error:String(r.j.error||"المصنع رفض الطلب.").slice(0,300)}};
+  return{code:200,body:{run:r.j.run}}}
+async function factoryState(run){const r=await factoryCall("GET","/api/state?run="+encodeURIComponent(run));if(!r)return FACTORY_DOWN;
+  const s=r.ok&&r.j&&r.j.run;if(!s)return{code:404,body:{error:"المهمة دي مش موجودة في المصنع."}};
+  const site=String(s.site||"").replace(/\\/g,"/"); // Windows paths from Python
+  return{code:200,body:{state:s.state,error:String(s.error||"").slice(0,300),site,
+    siteUrl:site?FACTORY()+"/site/"+site.split("/").map(encodeURIComponent).join("/").replace(/index\.html$/,""):"",
+    chat:(Array.isArray(s.chat)?s.chat:[]).slice(-300).map(c=>({from:String(c.from||""),text:String(c.text||"").slice(0,300)})),
+    ask:s.ask&&s.ask.question?{question:String(s.ask.question).slice(0,300)}:null}}}
+// Memory: short notes (clients, projects, preferences) in a local file. Plain text on disk, so anything that looks like a secret is refused.
+const MEMORY_FILE=()=>process.env.WEBLUME_MEMORY_FILE||path.join(ROOT,"weblume-memory.json");
+const MAX_NOTES=200;
+const SECRET_RX=/(sk-|sk_|gsk_|nvapi-|r8_|ghp_|github_pat_|AIza|xox[abp]-|eyJ)[\w-]{8,}|[A-Za-z0-9]{32,}|password|passwd|باسورد|باسوورد|كلمة (السر|المرور)|رقم (الكارت|البطاقة|الفيزا)|\b(?:\d[ -]?){13,19}\b/i;
+function readMemory(){try{const j=JSON.parse(fs.readFileSync(MEMORY_FILE(),"utf8"));return Array.isArray(j.notes)?j.notes.filter(n=>n&&typeof n.text==="string"):[]}catch(e){return []}}
+function addMemory(text){
+  if(typeof text!=="string"||!text.trim()||text.length>500)return{code:400,body:{error:"الملاحظة لازم تبقى نص (حتى 500 حرف)."}};
+  text=text.trim();if(SECRET_RX.test(text))return{code:400,body:{error:"ده شكله مفتاح أو باسورد أو رقم كارت، مش هحفظه."}};
+  const notes=readMemory();if(!notes.some(n=>n.text===text))notes.push({text,t:new Date().toISOString().slice(0,10)});
+  fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:notes.slice(-MAX_NOTES)},null,1),{mode:0o600});return{code:200,body:{ok:true}}}
 const server=http.createServer(async(req,res)=>{
   try{
     const p=new URL(req.url,"http://x").pathname,m=req.method;
@@ -108,6 +152,14 @@ const server=http.createServer(async(req,res)=>{
       if(!j[2]&&m==="GET")return out(res,await video.status(id));
       if(!j[2]&&m==="DELETE")return out(res,await video.cancel(id));
     }
+    const qs=new URL(req.url,"http://x").searchParams;
+    if(m==="GET"&&p==="/api/search"){const q=(qs.get("q")||"").trim();if(!q||q.length>300)return send(res,400,{error:"اكتب كلمات البحث (حتى 300 حرف)."});return out(res,await search(q))}
+    if(m==="POST"&&p==="/api/factory/start"){const b=await readBody(req),g=typeof b.goal==="string"?b.goal.trim():"";
+      if(!g||g.length>2000)return send(res,400,{error:"اكتب وصف الموقع (حتى 2000 حرف)."});return out(res,await factoryStart(g))}
+    if(m==="GET"&&p==="/api/factory/state"){const run=qs.get("run")||"";if(!/^[^/\\?#&\s]{1,160}$/.test(run)||run.includes(".."))return send(res,400,{error:"معرّف مهمة غير صالح."});return out(res,await factoryState(run))}
+    if(p==="/api/memory"){if(m==="GET")return send(res,200,{notes:readMemory()});
+      if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
+      return send(res,405,{error:"Method غير مسموح."})}
     send(res,404,{error:"مش موجود."});
   }catch(e){send(res,e.code&&e.code>=400&&e.code<500?e.code:500,{error:e.code?e.message:"خطأ داخلي في السيرفر."})}
 });

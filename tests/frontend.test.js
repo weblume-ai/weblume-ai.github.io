@@ -1,13 +1,13 @@
 // Frontend logic tests (no browser available): extracts the CORE/ZIP code from index.html and runs it in a VM with a mocked fetch.
 const vm=require("vm"),fs=require("fs"),path=require("path"),os=require("os"),{execSync}=require("child_process");
 let pass=0,fail=0,skipped=0;const T=(n,c)=>{c?pass++:fail++;console.log((c?"PASS ":"FAIL ")+n)};
-const html=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
+const html=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8").replace(/\r\n/g,"\n"); // Windows checkouts are CRLF
 const core=html.slice(html.indexOf("/*CORE*/"),html.indexOf("/*END*/"));
 const zipSrc=html.slice(html.indexOf("const CRCT="),html.indexOf("function titleName"));
 const a=html.indexOf("\n<script>\nconst $=")+9,b=html.lastIndexOf("</script>"),js=html.slice(a,b);
 const enc=new TextEncoder();
 const sse=chunks=>{let i=0;return{ok:true,status:200,headers:{get:()=>"text/event-stream"},body:{getReader:()=>({read:async()=>i<chunks.length?{done:false,value:enc.encode(chunks[i++])}:{done:true}})}}};
-const mk=f=>{const c={fetch:f,TextDecoder,AbortController,setTimeout,clearTimeout,JSON,Promise,Error,MAX_TURNS:12};vm.createContext(c);vm.runInContext(core+";this.chatOnce=chatOnce;this.calc=calc;this.runAgent=runAgent;",c);return c};
+const mk=(f,x)=>{const c=Object.assign({fetch:f,TextDecoder,AbortController,setTimeout,clearTimeout,JSON,Promise,Error,MAX_TURNS:12,provOf:()=>""},x||{});vm.createContext(c);vm.runInContext(core+";this.chatOnce=chatOnce;this.calc=calc;this.runAgent=runAgent;",c);return c};
 const cfg={url:"http://x/v1",model:"m"};
 (async()=>{
   const tmp=path.join(os.tmpdir(),"wl-app.js");fs.writeFileSync(tmp,js);
@@ -71,6 +71,38 @@ const cfg={url:"http://x/v1",model:"m"};
   r_=mm({kt:300,keys:{openrouter:"",groq:"g"}},{kt:200,keys:{openrouter:"old",groq:"g"}});T("keys: older copy cannot bring a deleted key back",!r_.ch&&r_.cfg.keys.openrouter==="");
   r_=mm({keys:{openrouter:"",groq:"mine"}},{keys:{openrouter:"x",groq:"theirs"}});T("keys: copy from older version only fills empty boxes",r_.cfg.keys.openrouter==="x"&&r_.cfg.keys.groq==="mine");
   r_=mm({kt:50,keys:{openrouter:"typed",groq:""}},{kt:900,keys:{openrouter:"",groq:"c"}},true);T("keys: first login keeps keys typed before login",r_.cfg.keys.openrouter==="typed"&&r_.cfg.keys.groq==="c"&&r_.cfg.kt>900);
+  // server tools (web_search, build_website, remember) + memory, through a mocked local server
+  {const fast=core.replace("FACTORY_POLL_MS=4000","FACTORY_POLL_MS=5");const reply=o=>({ok:true,status:200,headers:{get:()=>"application/json"},json:async()=>o});
+    const call=(name,args)=>sse(['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"'+name+'","arguments":'+JSON.stringify(JSON.stringify(args))+'}}]}}]}\n']);
+    const say=t=>sse(['data: {"choices":[{"delta":{"content":"'+t+'"}}]}\n']);
+    const mk2=(f,x)=>{const c=Object.assign({fetch:f,TextDecoder,AbortController,setTimeout,clearTimeout,JSON,Promise,Error,MAX_TURNS:12,provOf:()=>"",SRV:true,SRV_BASE:"http://srv"},x||{});vm.createContext(c);vm.runInContext(fast+";this.runAgent=runAgent;",c);return c};
+    const run=async(c,text)=>{const h=[{role:"user",content:text}],ev=[];await c.runAgent(cfg,[],h,e=>ev.push(e),new AbortController().signal);return{h,ev,tool:(h.find(x=>x.role==="tool")||{}).content||""}};
+    let urls=[],sys="",turn=0;
+    let c2=mk2(async(u,o)=>{urls.push(u);if(u==="http://srv/api/memory")return reply({notes:[{text:"عميل اسمه كافيه نور"}]});
+      if(u.startsWith("http://srv/api/search?q="))return reply({results:[{title:"GSAP Docs",url:"https://gsap.com/docs",snippet:"scroll"}]});
+      if(!turn++){sys=JSON.parse(o.body).messages[0].content;return call("web_search",{query:"gsap docs"})}return say("ok")});
+    let r_=await run(c2,"دوّر على gsap");
+    T("memory notes go into the system prompt",/كافيه نور/.test(sys)&&/web_search/.test(sys));
+    T("web_search: calls /api/search and gives the model titles + links",urls.some(u=>u==="http://srv/api/search?q=gsap%20docs")&&/https:\/\/gsap\.com\/docs/.test(r_.tool)&&r_.h[r_.h.length-1].content==="ok");
+    let posted=null;turn=0;c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory"&&o.method==="POST"){posted=JSON.parse(o.body);return reply({ok:true})}if(u==="http://srv/api/memory")return reply({notes:[]});return turn++?say("done"):call("remember",{note:"أسعار 2026: 1000 ريال"})});
+    r_=await run(c2,"افتكر الأسعار");T("remember: posts the note to /api/memory",posted&&posted.text==="أسعار 2026: 1000 ريال"&&/اتحفظ/.test(r_.tool));
+    turn=0;c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory"&&o.method==="POST")return{ok:false,status:400,json:async()=>({error:"ده شكله مفتاح"})};if(u==="http://srv/api/memory")return reply({notes:[]});return turn++?say("x"):call("remember",{note:"sk-abc"})});
+    r_=await run(c2,"احفظ");T("remember: server refusal reaches the model as an error, no crash",/خطأ: ده شكله مفتاح/.test(r_.tool));
+    let polls=0,startBody=null,sys2="";turn=0;
+    c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory")return reply({notes:[]});
+      if(u==="http://srv/api/factory/start"){startBody=JSON.parse(o.body);return reply({run:"2026-11-14_نور"})}
+      if(u.startsWith("http://srv/api/factory/state?run="))return reply(++polls<3?{state:"running",chat:[{from:"layla",text:"بدأنا"}].slice(0,polls)}:{state:"done",siteUrl:"http://127.0.0.1:8501/site/factory/noor/",chat:[{from:"layla",text:"بدأنا"},{from:"karim",text:"خلصت"}]});
+      if(!turn++){sys2=JSON.parse(o.body).messages[0].content;return call("build_website",{goal:"موقع كافيه نور"})}return say("جاهز")});
+    r_=await run(c2,"ابني موقع كافيه نور بالمصنع");
+    const fe=r_.ev.find(e=>e.type==="factory"),steps=r_.ev.filter(e=>e.type==="step").map(e=>e.text).join("\n");
+    T("build_website: starts the factory, polls, streams progress, opens the site",startBody&&startBody.goal==="موقع كافيه نور"&&fe&&fe.url==="http://127.0.0.1:8501/site/factory/noor/"&&/layla: بدأنا/.test(steps)&&/karim: خلصت/.test(steps)&&steps.split("بدأنا").length===2&&/8501\/site\/factory\/noor/.test(r_.tool));
+    T("factory request skips free-design HTML mode and tells the model to call build_website",/نادِ build_website/.test(sys2)&&!r_.ev.some(e=>e.type==="design"));
+    turn=0;c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory")return reply({notes:[]});if(u.startsWith("http://srv/"))throw new TypeError("Failed to fetch");return turn++?say("x"):call("build_website",{goal:"موقع"})});
+    r_=await run(c2,"بالمصنع");T("factory/server down: clear start.bat hint, no crash",/start\.bat/.test(r_.tool));
+    urls=[];turn=0;c2=mk2(async(u)=>{urls.push(u);return say("hi")},{SRV:false});await run(c2,"اهلا");T("no local server: memory not fetched",!urls.some(u=>u.startsWith("http://srv")));
+    const ctl2=new AbortController();turn=0;c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory")return reply({notes:[]});if(u==="http://srv/api/factory/start")return reply({run:"r1"});if(u.startsWith("http://srv/api/factory/state"))return reply({state:"running",chat:[]});return turn++?say("x"):call("build_website",{goal:"موقع"})});
+    const pr2=c2.runAgent(cfg,[],[{role:"user",content:"بالمصنع"}],()=>{},ctl2.signal);setTimeout(()=>ctl2.abort(),60);e=null;try{await pr2}catch(x){e=x}T("stop button ends factory polling",e&&/⏹/.test(e.message));
+  }
   // ZIP integrity (needs python3 or unzip; otherwise reported as skipped, not passed)
   const zc={TextEncoder,Blob,Uint8Array,DataView,ArrayBuffer};vm.createContext(zc);vm.runInContext(zipSrc+";this.makeZip=makeZip;",zc);
   const files=[{name:"app.py",code:"print('مرحبا')\n"},{name:"templates/index.html",code:"<h1>أهلاً</h1>".repeat(500)},{name:"static/style.css",code:""}];

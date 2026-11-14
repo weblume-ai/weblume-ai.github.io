@@ -43,6 +43,13 @@ When `start.bat` is running, the hosted copy at `https://weblume-ai.github.io/` 
 ## Account sync (Supabase, optional)
 Settings → ☁ الحساب: sign in with email + password and your API keys follow you to any browser or device. Keys are encrypted in the browser (AES-GCM 256, key derived from the password with PBKDF2-SHA256, 210k iterations, salted with the email); the database only stores ciphertext. Setup: create a free Supabase project, run `supabase.sql` in the SQL Editor, set Authentication → URL Configuration → Site URL to your GitHub Pages URL, and put the Project URL + anon/publishable key in Settings → Advanced (or in `SUPA_DEFAULT` in `index.html`). Forgetting the password means re-entering the keys once (they cannot be decrypted without it).
 
+## One chat for everything: web search, site factory, memory
+These three tools go through the local server (`start.bat`), from the server copy or the GitHub Pages copy. Without it, the model gets a clear "run start.bat" message.
+- **`web_search`**: free and keyless. The server fetches DuckDuckGo's HTML results page and returns `{title,url,snippet}` (ads dropped). The model is told to cite the links.
+- **`build_website`**: starts the Weblume site factory (`weblume-company`, `http://127.0.0.1:8501`, override with `WEBLUME_FACTORY_URL`), polls it every 4 s, streams the team's progress into the thinking panel, and opens the finished site in a pane beside the chat. A message that says «مصنع»/"factory" skips free-design mode and asks the model to call this tool. If the factory asks a question, the chat points you to its dashboard to answer.
+- **`remember`**: saves one-line notes (clients, projects, preferences) to `weblume-memory.json` (git-ignored, local only, max 200). The notes go into the system prompt of every message. Anything that looks like a key, token, password or card number is refused.
+The local fine-tuned «جهازي» `weblume` model path does not use these tools.
+
 ## Thinking panel
 While the agent works, a collapsible panel with the animated Weblume mark shows the phase and timer. Reasoning text, tool calls and provider switches stay inside it, collapsed by default.
 
@@ -92,6 +99,10 @@ Verify the token without spending credits: `curl http://127.0.0.1:8787/api/provi
 | `GET /api/video/jobs/{id}` | none | `{status:"queued"|"running"}` / `{status:"succeeded",url}` / `{status:"failed",error}` / `{status:"canceled"}` |
 | `GET /api/video/jobs/{id}/file` | optional `Range` | the video bytes |
 | `DELETE /api/video/jobs/{id}` | none | `{status:"canceled"}` |
+| `GET /api/search?q=` | query (≤300 chars) | `{results:[{title,url,snippet}]}` |
+| `POST /api/factory/start` | `{goal}` | `{run}` |
+| `GET /api/factory/state?run=` | run id | `{state,error,site,siteUrl,chat:[{from,text}],ask}` |
+| `GET /api/memory` / `POST /api/memory` | none / `{text}` | `{notes:[{text,t}]}` / `{ok:true}` |
 
 Errors are `{error:"..."}` with: 400 bad input, 403 foreign Origin, 413/415 body problems, 429 provider quota, 502 provider error, 503 provider not configured, 504 provider timeout.
 
@@ -103,7 +114,7 @@ Errors are `{error:"..."}` with: 400 bad input, 403 foreign Origin, 413/415 body
 - `REPLICATE_API_BASE` and `REPLICATE_OUTPUT_HOST_ALLOWLIST` exist for tests/self-hosted gateways only. Leave them unset.
 
 ## Testing: what is and is not verified
-Automated (`npm test`): 47 backend + 16 frontend-logic checks against **mock** providers. They verify our request construction, status mapping, error handling, timeouts, redaction, streaming and route contracts. They do **not** prove that Replicate or any image service accepts the requests.
+Automated (`npm test`): 81 backend + 42 frontend-logic checks against **mock** providers. They verify our request construction, status mapping, error handling, timeouts, redaction, streaming and route contracts. They do **not** prove that Replicate or any image service accepts the requests.
 
 Not verified here: any real Replicate/image call (no credentials in the build environment), the UI in a real browser (no browser available), skills import/export UI, chat history UI, the File System Access folder saving, mobile/RTL layout. Please smoke-test those in Chrome/Edge before relying on them.
 

@@ -3,6 +3,7 @@ const http=require("http"),fs=require("fs"),path=require("path");
 let pass=0,fail=0;const T=(n,c)=>{c?pass++:fail++;console.log((c?"PASS ":"FAIL ")+n)};
 const ID="abcdefghij1234567890abcdef",TOKEN="r8_MOCKTOKEN123456",KEY="sk-MOCKIMAGEKEY999";
 const seen=[];let mode={};
+const DDG_HTML=`<div class="result"><h2><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgsap.com%2Fdocs%2F&amp;rut=abc">GSAP <b>Docs</b> &amp; Learning</a></h2><a class="result__snippet" href="x">Scroll &quot;fast&quot; &#39;now&#39;</a></div><div class="result result--ad"><a class="result__a" href="https://duckduckgo.com/y.js?ad_domain=x">Ad</a></div><div class="result"><a class="result__a" href="https://example.org/p">Example</a></div>`;
 const mock=http.createServer((q,r)=>{let b="";q.on("data",d=>b+=d);q.on("end",()=>{
   const j=(c,o,h)=>{r.writeHead(c,{"Content-Type":"application/json",...(h||{})});r.end(JSON.stringify(o))};
   const u=q.url;seen.push({m:q.method,u,h:q.headers,b});
@@ -15,6 +16,9 @@ const mock=http.createServer((q,r)=>{let b="";q.on("data",d=>b+=d);q.on("end",()
   if(u.startsWith("/out/")){ if(q.headers.authorization!=="Bearer "+TOKEN)return j(401,{});
     const buf=Buffer.from("0123456789");if(q.headers.range){r.writeHead(206,{"Content-Type":"video/mp4","Content-Range":"bytes 0-3/10","Content-Length":4,"Accept-Ranges":"bytes"});return r.end(buf.slice(0,4))}
     r.writeHead(200,{"Content-Type":"text/html","Content-Length":10});return r.end(buf)}
+  if(u.startsWith("/ddg/")){r.writeHead(200,{"Content-Type":"text/html"});return r.end(DDG_HTML)}
+  if(u==="/fac/api/start"){const g=JSON.parse(b||"{}").goal;return g==="busy"?j(400,{error:"A run is already in progress."}):j(200,{run:"2026-11-14_كافيه"})}
+  if(u.startsWith("/fac/api/state"))return j(200,{run:u.includes(encodeURIComponent("2026-11-14_كافيه"))?{state:"done",error:"",site:"factory\\noor cafe\\index.html",chat:[{from:"layla",to:"you",text:"خلصنا"}],ask:null,contacted:["x"]}:null,contacted:["secret list"]});
   if(q.headers.authorization!=="Bearer "+TOKEN)return j(401,{title:"Unauthenticated",detail:"bad token "+TOKEN});
   if(mode.status)return j(mode.status,{detail:"mock "+mode.status});
   if(u==="/rep/models/acme/vid/predictions"||u==="/rep/predictions"&&q.method==="POST")return j(201,{id:ID,status:"starting"});
@@ -92,7 +96,7 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"GET","/");T("serves index.html",r.s===200&&/<html/.test(r.t));
   // frontend <-> backend contract
   const html=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
-  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
+  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings|search|factory\/(start|state)|memory)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
   T("frontend polls with fields backend returns (status/url/error/id)",/j\.status==="succeeded"/.test(html)&&/j\.url/.test(html)&&/j\.error/.test(html)&&/vid=j\.id/.test(html)&&/j\.status==="canceled"/.test(html));
   // LLM relay (providers that block browser CORS), against a LOCAL MOCK upstream
   E.LLM_NVIDIA_BASE="http://127.0.0.1:"+mp+"/nv";
@@ -134,5 +138,33 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"POST","/api/llm/nvidia/chat/completions",{model:"m",stream:true},{h:{Host:"127.0.0.1:"+p,Origin:"https://weblume-ai.github.io",Authorization:"Bearer nvapi-MOCKKEY123"}});
   T("cors: own GitHub Pages can use NVIDIA relay",r.s===200&&/"hi"/.test(r.t));
   try{fs.unlinkSync(SF)}catch(e){}
+  // web search (mock DuckDuckGo HTML page)
+  const L={h:{Host:"127.0.0.1:"+p}};E.SEARCH_BASE="http://127.0.0.1:"+mp+"/ddg/";
+  r=await call(p,"GET","/api/search?q="+encodeURIComponent("gsap docs"),null,L);
+  T("search: results parsed, redirect link decoded, entities cleaned, ads dropped",r.s===200&&r.j.results.length===2&&r.j.results[0].url==="https://gsap.com/docs/"&&r.j.results[0].title==="GSAP Docs & Learning"&&r.j.results[0].snippet==="Scroll \"fast\" 'now'"&&r.j.results[1].url==="https://example.org/p");
+  T("search: query sent to the fixed upstream",seen.some(x=>x.u==="/ddg/?q=gsap%20docs"));
+  T("search: empty query -> 400",(await call(p,"GET","/api/search?q=%20",null,L)).s===400);
+  E.SEARCH_BASE="http://127.0.0.1:1/ddg/";r=await call(p,"GET","/api/search?q=x",null,L);T("search: upstream down -> 502 with message",r.s===502&&/البحث/.test(r.j.error));
+  // site factory proxy (mock weblume-company server)
+  E.WEBLUME_FACTORY_URL="http://127.0.0.1:"+mp+"/fac";
+  r=await call(p,"POST","/api/factory/start",{goal:"موقع كافيه"},L);const fs_=seen.filter(x=>x.u==="/fac/api/start").pop();
+  T("factory: start forwards the goal, returns run id",r.s===200&&r.j.run==="2026-11-14_كافيه"&&JSON.parse(fs_.b).goal==="موقع كافيه");
+  r=await call(p,"POST","/api/factory/start",{goal:"busy"},L);T("factory: busy error passed through",r.s===400&&/already/.test(r.j.error));
+  T("factory: empty goal -> 400",(await call(p,"POST","/api/factory/start",{goal:" "},L)).s===400);
+  r=await call(p,"GET","/api/factory/state?run="+encodeURIComponent("2026-11-14_كافيه"),null,L);
+  T("factory: state trimmed, Windows site path -> site URL",r.s===200&&r.j.state==="done"&&r.j.siteUrl==="http://127.0.0.1:"+mp+"/fac/site/factory/noor%20cafe/"&&r.j.chat[0].text==="خلصنا"&&!r.t.includes("contacted"));
+  T("factory: unknown run -> 404, path tricks -> 400",(await call(p,"GET","/api/factory/state?run=nope",null,L)).s===404&&(await call(p,"GET","/api/factory/state?run=..%2Fx",null,L)).s===400);
+  E.WEBLUME_FACTORY_URL="http://127.0.0.1:1";r=await call(p,"POST","/api/factory/start",{goal:"x"},L);T("factory: not running -> 503 with start.bat hint",r.s===503&&/start\.bat/.test(r.j.error));
+  // memory
+  const MF=require("path").join(require("os").tmpdir(),"wl-memory-test-"+process.pid+".json");E.WEBLUME_MEMORY_FILE=MF;try{fs.unlinkSync(MF)}catch(e){}
+  T("memory: empty at first",(await call(p,"GET","/api/memory",null,L)).j.notes.length===0);
+  await call(p,"POST","/api/memory",{text:"عميل: كافيه نور، عايز موقع بمنيو"},L);await call(p,"POST","/api/memory",{text:"عميل: كافيه نور، عايز موقع بمنيو"},L);
+  r=await call(p,"GET","/api/memory",null,L);T("memory: saved once (no duplicates)",r.j.notes.length===1&&r.j.notes[0].text==="عميل: كافيه نور، عايز موقع بمنيو");
+  const bad=["مفتاح جروك gsk_abcdefgh12345678","AIzaSyA1234567890abcdefghijklmnop","the password is hunter2","كلمة السر 1234","card 4111 1111 1111 1111","abcdefABCDEF0123456789abcdefABCDEF01"];
+  let refused=0;for(const t of bad){const x=await call(p,"POST","/api/memory",{text:t},L);if(x.s===400)refused++}
+  T("memory: keys, passwords and card numbers refused",refused===bad.length&&(await call(p,"GET","/api/memory",null,L)).j.notes.length===1);
+  T("memory: too long / not text -> 400",(await call(p,"POST","/api/memory",{text:"x".repeat(501)},L)).s===400&&(await call(p,"POST","/api/memory",{text:5},L)).s===400);
+  T("memory: foreign Host / foreign Origin rejected",(await call(p,"GET","/api/memory",null,{h:{Host:"evil.example"}})).s===403&&(await call(p,"POST","/api/memory",{text:"x"},{h:{Host:"127.0.0.1:"+p,Origin:"https://evil.example"}})).s===403);
+  try{fs.unlinkSync(MF)}catch(e){}
   console.log("RESULT pass="+pass+" fail="+fail);server.close();mock.close();process.exit(fail?1:0);
 })();

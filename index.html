@@ -29,6 +29,14 @@ button:focus-visible,a:focus-visible,.page input:focus-visible,.page textarea:fo
 .rail button:hover{background:var(--bg);color:var(--ink)}
 .rail button.on{background:var(--soft);color:var(--acc-tx)}
 main{display:flex;flex-direction:column;min-width:0;min-height:0}
+@media(min-width:901px){body.has-site{grid-template-columns:88px minmax(0,1fr) min(48vw,760px)}}
+#sitepane{display:flex;flex-direction:column;min-height:0;border-inline-start:1px solid var(--line);background:var(--surface);animation:spIn .35s ease-out}
+#sitepane .sp-bar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line)}
+#sitepane .sp-bar b{flex:1;font-weight:600}#sitepane .sp-bar a{color:var(--acc-tx);font-size:14px}#sitepane .sp-bar button{padding:0 14px;min-height:34px}
+#sitepane iframe{flex:1;width:100%;border:0;background:#fff}
+@keyframes spIn{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+@media(max-width:900px){#sitepane{position:fixed;inset:0;z-index:60}}
+@media(prefers-reduced-motion:reduce){#sitepane{animation:none}}
 .top{display:flex;align-items:center;gap:16px;padding:12px 24px;border-bottom:1px solid var(--line)}
 .top strong{font-size:16px;font-weight:600;flex:1}
 .pill{font:13px/1.7 ui-monospace,Consolas,monospace;color:var(--mute);background:var(--surface);border:1px solid var(--line);padding:0 16px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%;direction:ltr}
@@ -317,7 +325,10 @@ function toolDefs(noSite){const all=[
   reviews:{type:"array",description:"آراء حقيقية من المستخدم بس، ممنوع تألّفها",items:{type:"object",properties:{name:{type:"string"},text:{type:"string"},rating:{type:"number"}},required:["text"]}},
   translation:{type:"object",description:"لو المستخدم عايز الموقع بلغتين: نفس الحقول النصية (name, tagline, headline, description, about, address, hours, features, highlights, menu[{category, items[{name, desc}]}], services, steps, works, offers) مترجمة للغة التانية وبنفس الترتيب. ده بيضيف زرار تبديل اللغة."}
  },required:["kind","name"]}}},
- {type:"function",function:{name:"calculator",description:"يحسب تعبير رياضي (أرقام و + - * / ( ) فقط).",parameters:{type:"object",properties:{expression:{type:"string"}},required:["expression"]}}}
+ {type:"function",function:{name:"calculator",description:"يحسب تعبير رياضي (أرقام و + - * / ( ) فقط).",parameters:{type:"object",properties:{expression:{type:"string"}},required:["expression"]}}},
+ {type:"function",function:{name:"web_search",description:"يدوّر على الإنترنت (مجاني). استخدمه لأي سؤال محتاج معلومة حديثة أو حقيقية أو بحث، وفي الرد اذكر روابط المصادر.",parameters:{type:"object",properties:{query:{type:"string",description:"كلمات البحث"}},required:["query"]}}},
+ {type:"function",function:{name:"build_website",description:"يشغّل مصنع مواقع Weblume اللي على جهاز المستخدم: يبني موقع كامل متحرك ويفتحه جنب الشات. استخدمه لما المستخدم يطلب المصنع أو موقع حقيقي كامل لعميل.",parameters:{type:"object",properties:{goal:{type:"string",description:"وصف الموقع كامل: النشاط والاسم وأي تفاصيل قالها المستخدم"}},required:["goal"]}}},
+ {type:"function",function:{name:"remember",description:"يحفظ ملاحظة في ذاكرة المستخدم (عميل، مشروع، تفضيل). استخدمه لما يقول «افتكر» أو «احفظ». ممنوع تحفظ مفاتيح أو باسوردات أو أرقام كروت.",parameters:{type:"object",properties:{note:{type:"string",description:"جملة واحدة واضحة"}},required:["note"]}}}
 ];return noSite?all.filter(t=>t.function.name!=="build_site"):all}
 const IDLE_MS=180000;
 async function chatOnce(cfg,messages,onEvent,signal,noTools){
@@ -445,14 +456,57 @@ async function runWeblume(cfg,skills,history,onEvent,signal){
   if(!(/<!doctype|<html[\s>]/i.test(msg.content)&&/<\/html>/i.test(msg.content)&&nb<=1)&&plan.mode!=="chat"){onEvent({type:"step",text:"⚠️ weblume مطلّعش ملف كامل سليم"});if(await cloudRun("هخلّي موديل أكبر يعمله"))return}
   history.push({role:"assistant",content:msg.content});onEvent({type:"text",text:msg.content});
 }
+// Tools that go through the local Node server (start.bat): web search, the Weblume site factory, memory.
+const SERVER_TOOLS=new Set(["web_search","build_website","remember"]),FACTORY_POLL_MS=4000,FACTORY_MAX_MS=1800000;
+const srvBase=()=>typeof SRV_BASE==="string"?SRV_BASE:"http://127.0.0.1:8787";
+const srvOn=()=>typeof SRV!=="undefined"&&!!SRV;
+const STOP="⏹ اتوقف";
+async function srvJson(path,opt,signal,ms){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),ms||20000),on=()=>ac.abort();if(signal)signal.addEventListener("abort",on);
+  try{let r;try{r=await fetch(srvBase()+path,Object.assign({cache:"no-store",signal:ac.signal},opt||{}))}
+    catch(e){if(signal&&signal.aborted)throw new Error(STOP);throw new Error("السيرفر اللي على جهازك مش شغال أو ماردش (شغّل start.bat).")}
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
+  finally{clearTimeout(t);if(signal)signal.removeEventListener("abort",on)}}
+const postJson=o=>({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)});
+const pause=(ms,signal)=>new Promise((ok,no)=>{if(signal&&signal.aborted)return no(new Error(STOP));const t=setTimeout(ok,ms);if(signal)signal.addEventListener("abort",()=>{clearTimeout(t);no(new Error(STOP))},{once:true})});
+async function loadMemory(signal){if(!srvOn())return "";
+  try{const j=await srvJson("/api/memory",null,signal,3000);const n=(j.notes||[]).slice(-60);
+    return n.length?"\n\nذاكرتك عن المستخدم (ملاحظات حفظها قبل كده بأداة remember، استخدمها لو تفيد في الرد):\n"+n.map(x=>"- "+x.text).join("\n"):""}
+  catch(e){if(e.message===STOP)throw e;return ""}}
+async function runServerTool(name,args,onEvent,signal){
+  try{
+    if(name==="web_search"){const q=String(args.query||"").trim().slice(0,300);if(!q)return "خطأ: query فاضي.";
+      const rs=(await srvJson("/api/search?q="+encodeURIComponent(q),null,signal)).results||[];
+      onEvent({type:"step",text:"🔎 لقيت "+rs.length+" نتيجة لـ «"+q+"»"});
+      return rs.length?"نتايج البحث (استخدمها في الرد واذكر روابط المصادر):\n"+rs.map((x,i)=>(i+1)+". "+x.title+"\n"+x.url+(x.snippet?"\n"+x.snippet:"")).join("\n\n"):"مفيش نتايج. جرّب كلمات تانية."}
+    if(name==="remember"){const t=String(args.note||"").trim();if(!t)return "خطأ: note فاضي.";
+      await srvJson("/api/memory",postJson({text:t}),signal);onEvent({type:"step",text:"🧠 اتحفظ في الذاكرة: "+t.slice(0,150)});return "✅ اتحفظ في الذاكرة."}
+    if(name==="build_website"){const goal=String(args.goal||"").trim();if(!goal)return "خطأ: goal فاضي.";
+      const run=(await srvJson("/api/factory/start",postJson({goal}),signal)).run;
+      onEvent({type:"step",phase:"المصنع بيبني الموقع",text:"🏭 مصنع Weblume بدأ: "+goal.slice(0,150)});
+      let seen=0,asked="",fails=0;
+      for(const t0=Date.now();Date.now()-t0<FACTORY_MAX_MS;){
+        await pause(FACTORY_POLL_MS,signal);
+        let s;try{s=await srvJson("/api/factory/state?run="+encodeURIComponent(run),null,signal);fails=0}catch(e){if(e.message===STOP||++fails>=5)throw e;continue}
+        const chat=s.chat||[];for(const c of chat.slice(seen))onEvent({type:"step",text:"🏭 "+c.from+": "+c.text});seen=chat.length;
+        if(s.ask&&s.ask.question!==asked){asked=s.ask.question;onEvent({type:"step",text:"❓ المصنع مستني إجابتك: "+asked+"\nجاوب من لوحة المصنع: http://127.0.0.1:8501"})}
+        if(s.state==="done"){if(!s.siteUrl)return "المصنع خلص بس مفيش موقع اتبنى. اسأل المستخدم يوضح طلبه.";
+          onEvent({type:"factory",url:s.siteUrl});return "✅ الموقع اتبنى واتفتح جنب الشات: "+s.siteUrl+"\nاكتب للمستخدم سطرين بس (من غير كود) وقوله يراجعه ويقولك لو عايز تعديل."}
+        if(s.state&&s.state!=="running")return "❌ المصنع وقف: "+(s.error||s.state);
+      }
+      return "⏱ المصنع اتأخر أكتر من 30 دقيقة. شوف لوحة المصنع: http://127.0.0.1:8501";
+    }
+  }catch(e){if(e.message===STOP)throw e;onEvent({type:"step",text:"⚠️ "+name+": "+e.message});return "خطأ: "+e.message}
+  return "أداة غير معروفة.";
+}
 async function runAgent(cfg,skills,history,onEvent,signal){
   if(provOf(cfg)==="local"&&/weblume/i.test(String(cfg.model||"")))return runWeblume(cfg,skills,history,onEvent,signal);
   const lastU=[...history].reverse().find(m=>m.role==="user"),ut=lastU?String(lastU.content):"";
-  const TPL=new Set(["pdf-viewer-site","site-template","quran-reader-site","restaurant-cafe-site","ecommerce-site","portfolio-site","charts-dashboard","html-page","design-palettes","frontend-frameworks","python-web-app","php-site","node-fullstack","java-spring","csharp-dotnet","go-web","flutter-mobile","any-language","prayer-times-site"]);const hit0=skills.filter(x=>{try{return x.kw&&new RegExp(x.kw,"i").test(ut)}catch(e){return false}}).sort((a,b)=>(b.pri||0)-(a.pri||0));const site=wantsSite(ut);const free=site&&!cfg.tpl&&!wantsTemplate(ut);const biz=!site&&/(عرض سعر|عرض اسعار|عرض أسعار|تسعير|بروبوزال|proposal|عقد|فاتور|بوست|كابشن|caption|إعلان|اعلان|ريلز|reels|رسال[ةه]|لوحة تحكم|لوحه تحكم|supabase|برومبت|prompt)/i.test(ut);const hit=site||biz?hit0.filter(x=>!TPL.has(x.name)&&!/site|page|palette|design|css|effects|tailwind/.test(x.name)):hit0.length&&hit0[0].ex?hit0.filter(x=>x.ex||!TPL.has(x.name)):hit0;const bcg=site&&!free?skills.find(x=>x.name==="build-copy-guide"):null;const auto=free?FREE_SKILLS.map(f=>{const u=skills.find(x=>x.name===f.name);return u&&u.body?u.body:f.body}).join("\n\n"):(bcg?[bcg]:[]).concat(hit.filter(x=>x!==bcg)).reduce((a,x)=>{const l=a.reduce((n,y)=>n+y.body.length,0);if(a.length<3&&(!a.length||l+x.body.length<=16000))a.push(x);return a},[]).map(x=>x.body).join("\n\n");
+  const TPL=new Set(["pdf-viewer-site","site-template","quran-reader-site","restaurant-cafe-site","ecommerce-site","portfolio-site","charts-dashboard","html-page","design-palettes","frontend-frameworks","python-web-app","php-site","node-fullstack","java-spring","csharp-dotnet","go-web","flutter-mobile","any-language","prayer-times-site"]);const hit0=skills.filter(x=>{try{return x.kw&&new RegExp(x.kw,"i").test(ut)}catch(e){return false}}).sort((a,b)=>(b.pri||0)-(a.pri||0));const fac=/مصنع|factory/i.test(ut);const site=wantsSite(ut);const free=site&&!fac&&!cfg.tpl&&!wantsTemplate(ut);const biz=!site&&/(عرض سعر|عرض اسعار|عرض أسعار|تسعير|بروبوزال|proposal|عقد|فاتور|بوست|كابشن|caption|إعلان|اعلان|ريلز|reels|رسال[ةه]|لوحة تحكم|لوحه تحكم|supabase|برومبت|prompt)/i.test(ut);const hit=site||biz?hit0.filter(x=>!TPL.has(x.name)&&!/site|page|palette|design|css|effects|tailwind/.test(x.name)):hit0.length&&hit0[0].ex?hit0.filter(x=>x.ex||!TPL.has(x.name)):hit0;const bcg=site&&!free?skills.find(x=>x.name==="build-copy-guide"):null;const auto=free?FREE_SKILLS.map(f=>{const u=skills.find(x=>x.name===f.name);return u&&u.body?u.body:f.body}).join("\n\n"):(bcg?[bcg]:[]).concat(hit.filter(x=>x!==bcg)).reduce((a,x)=>{const l=a.reduce((n,y)=>n+y.body.length,0);if(a.length<3&&(!a.length||l+x.body.length<=16000))a.push(x);return a},[]).map(x=>x.body).join("\n\n");
   const usedDirs=history.filter(m=>m.role==="assistant").map(m=>String(m.content||"")).join(" ");const dir=free?pickDirection(ut,usedDirs):null;const hasPrev=free&&history.some(m=>m.role==="assistant"&&/<\/html>/i.test(String(m.content||"")));
   if(free){cfg=Object.assign({},cfg,{_free:true});onEvent({type:"design",dir})}
   const extra=(auto?"\n\nتعليمات إلزامية للمهمة دي (نفذها بالحرف):\n"+auto:"")+(free?"\n\nالمهمة دي موقع بتصميم حر (مش قالب):\n1. اتجاه التصميم المقترح المرة دي (اختراع جديد، طوّره بخيالك ومش لازم تلتزم بيه حرفيًا): «"+dir.n+"» — خطوط: "+dir.fonts+" — ألوان: "+dir.pal+" — توقيع بصري: "+dir.sig+". لو المستخدم حدد ألوان أو ستايل أو براند، كلامه هو اللي يمشي.\n2. ابدأ الرد بسطر: 🎨 اتجاه التصميم: "+dir.n+"، وبعده سطرين بالمصري: الفكرة والخطوط والألوان.\n3. بعدها 📄 index.html وبلوك html واحد فيه الموقع كامل (CSS وJS جوه الملف) من <!doctype html> لـ </html> من غير أي اختصار.\n4. طبّق تعليمات الـ ART DIRECTION والـ MOTION والـ FUNCTIONALITY والـ QUALITY اللي فوق كلها."+(hasPrev?"\n5. لو الطلب تعديل على الموقع اللي فات في المحادثة: عدّل على نفس الكود ورجّعه كامل بنفس الاتجاه، وماتغيرش التصميم إلا لو طلب تصميم جديد.":""):"")+(site&&!free?"\n\nالمهمة دي موقع: نادِ أداة build_site فورًا بالبيانات كاملة، وماتكتبش HTML ولا CSS خالص. املا: kind وname وtagline وheadline جذاب وdescription و3 أو 4 features و4 highlights. لكافيه أو مطعم: menu فيه 3 أقسام على الأقل وفي كل قسم 3 لـ 6 أصناف بوصف قصير. لشركة: services من 4 لـ 6 وsteps 4. لو المستخدم ماداش أسعار حط أسعار تقريبية مناسبة وقوله يغيّرها. لو اداك رقم واتساب حطه بكود الدولة. لو طلب لغتين أو زرار إنجليزي املا translation. ممنوع تألّف reviews أو works أو offers أو روابط صور، حطهم بس لو المستخدم اداهم.":"");
-  const sys={role:"system",content:buildSystem(skills,cfg.fast,free)+extra};
+  const tools="\n\nأدوات إضافية: web_search لأي سؤال محتاج معلومة حديثة أو بحث (واذكر الروابط). build_website يشغّل مصنع مواقع Weblume اللي على الجهاز ويفتح الموقع جنب الشات. remember لما المستخدم يقول «افتكر» أو «احفظ» (من غير مفاتيح أو باسوردات)."+(fac?"\nالمستخدم طالب المصنع: نادِ build_website بوصف الموقع كامل، وماتكتبش كود بنفسك.":"");
+  const sys={role:"system",content:buildSystem(skills,cfg.fast,free)+extra+tools+await loadMemory(signal)};
   for(let i=0;i<MAX_TURNS;i++){
     let msg=await chatOnce(cfg,[sys,...history],onEvent,signal);
     if(!msg.content&&!(msg.tool_calls&&msg.tool_calls.length)){
@@ -471,6 +525,7 @@ async function runAgent(cfg,skills,history,onEvent,signal){
       let args={},bad=false;try{const a=c.function.arguments;args=typeof a==="string"?JSON.parse(a||"{}"):(a||{});if(!args||typeof args!=="object"||Array.isArray(args))throw 0}catch(e){bad=true;args={}}
       onEvent({type:"tool",name:c.function.name,args});
       if(!bad&&c.function.name==="build_site"){history.push({role:"tool",tool_call_id:c.id||"",content:siteToolResult(args,onEvent)});continue}
+      if(!bad&&SERVER_TOOLS.has(c.function.name)){history.push({role:"tool",tool_call_id:c.id||"",content:await runServerTool(c.function.name,args,onEvent,signal)});continue}
       history.push({role:"tool",tool_call_id:c.id||"",content:bad?"خطأ: arguments مش JSON صالح.":runTool(c.function.name,args,skills)});
     }
   }
@@ -1659,6 +1714,11 @@ function makeWork(live_){const d=document.createElement("details");d.className="
 const looksJson=t=>/^\s*(```json|\{)/.test(String(t||""));
 const pLabel=c=>{const p=provOf(c);return (p?PROVIDERS[p].label+" · ":"")+c.model};
 let ctrl=null;
+// The factory's finished site, shown in a pane beside the chat (the factory serves it sandboxed).
+function openSitePane(url){let p=document.getElementById("sitepane");
+  if(!p){p=document.createElement("aside");p.id="sitepane";p.innerHTML='<div class="sp-bar"><b>الموقع</b><a target="_blank" rel="noopener">افتح في تبويب</a><button type="button" aria-label="اقفل المعاينة">✕</button></div><iframe title="معاينة الموقع" sandbox="allow-scripts allow-forms allow-popups"></iframe>';
+    document.body.appendChild(p);p.querySelector("button").onclick=()=>{p.remove();document.body.classList.remove("has-site")}}
+  p.querySelector("a").href=url;p.querySelector("iframe").src=url;document.body.classList.add("has-site")}
 async function send(){
   if(busy){if(ctrl)ctrl.abort();return}
   const text=$("#msg").value.trim();if(!text)return;persist();
@@ -1670,13 +1730,14 @@ async function send(){
       if(ev.type==="think"){if(ev.text)wk.think(ev.text);wk.phase("بيفكر");return}
       if(ev.type==="live"){if(looksJson(ev.text)){wk.phase("بيجهّز بيانات الموقع");return}const k=ev.text.search(/```|<!doctype|<html[\s>]/i);const prose=(k<0?ev.text:ev.text.slice(0,k)).replace(/\n?📄[^\n]*\s*$/,"").trim();if(k>=0){wk.phase("بيكتب الكود");wk.code(ev.text.slice(k).replace(/^```[^\n]*\n?/,"").replace(/\n?```[\s\S]*$/,""))}else wk.phase("بيكتب الرد");if(prose){const nb=log.scrollHeight-log.scrollTop-log.clientHeight<80;if(!live)live=add("a","");if(live.textContent!==prose)live.textContent=prose;if(nb)log.scrollTop=log.scrollHeight}return}
       if(ev.type==="site"){if(live){live.remove();live=null}wk.step("✅ الموقع اتبنى وجاهز تحت");renderMsg(add("a",""),"```html "+siteFile(ev.name)+"\n"+ev.html+"\n```");return}
+      if(ev.type==="factory"){wk.step("✅ الموقع جاهز واتفتح جنب الشات");const m_=add("a","🌐 الموقع جاهز: "),a_=document.createElement("a");a_.href=ev.url;a_.target="_blank";a_.rel="noopener";a_.textContent=ev.url;a_.dir="ltr";m_.appendChild(a_);openSitePane(ev.url);return}
       if(ev.type==="text"){if(live){renderMsg(live,ev.text);live=null}else if(!looksJson(ev.text))renderMsg(add("a",""),ev.text);return}
       if(ev.type==="step"){if(ev.phase)wk.phase(ev.phase);wk.step(ev.text);return}
       if(ev.type==="design"){wk.phase("بيصمم");wk.step("🎨 تصميم حر: اتجاه «"+ev.dir.n+"» · "+ev.dir.fonts);return}
       if(ev.type==="cont"){wk.step("✂️ الرد اتقطع، بيكمّل الكود");return}
       if(ev.type==="retry"){live=null;wk.step("↻ الموديل رجّع رد فاضي، بيحاول تاني من غير أدوات");return}
       if(ev.type==="empty"){add("chip err","⚠️ الموديل لسه بيرجّع رد فاضي.\nالأسباب الأشهر: الـ context صغير (جرّب OLLAMA_CONTEXT_LENGTH=16384 وأعد تشغيل Ollama) أو الموديل ضعيف مع الأدوات. جرّب موديل أكبر أو شيل وضع سريع.");return}
-      if(ev.type==="tool"){if(live&&looksJson(live.textContent)){live.remove()}live=null;if(ev.name==="build_site"){wk.phase("بيبني الموقع");wk.step("🏗 بيبني موقع «"+String(ev.args.name||"")+"» بقالب Weblume")}else if(ev.name==="load_skill"){wk.phase("بيقرا سكيل");wk.step("📘 استخدم سكيل: "+ev.args.name)}else{wk.phase("بيستخدم "+ev.name);wk.step("🔧 "+ev.name+" "+JSON.stringify(ev.args).slice(0,200))}}
+      if(ev.type==="tool"){if(live&&looksJson(live.textContent)){live.remove()}live=null;if(ev.name==="build_site"){wk.phase("بيبني الموقع");wk.step("🏗 بيبني موقع «"+String(ev.args.name||"")+"» بقالب Weblume")}else if(ev.name==="load_skill"){wk.phase("بيقرا سكيل");wk.step("📘 استخدم سكيل: "+ev.args.name)}else if(ev.name==="web_search"){wk.phase("بيدوّر على النت");wk.step("🔎 بيدوّر: "+String(ev.args.query||""))}else if(ev.name==="build_website"){wk.phase("المصنع بيبني الموقع")}else if(ev.name==="remember"){wk.phase("بيحفظ في الذاكرة")}else{wk.phase("بيستخدم "+ev.name);wk.step("🔧 "+ev.name+" "+JSON.stringify(ev.args).slice(0,200))}}
     };
   let chain=[cfg];const cur=provOf(cfg);
   const task=cfg.smart?classifyTask(text):"";const routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];

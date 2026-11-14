@@ -6,3 +6,4 @@ node_modules/
 .DS_Store
 
 weblume-settings.json
+weblume-memory.json
