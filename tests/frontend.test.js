@@ -102,6 +102,19 @@ const cfg={url:"http://x/v1",model:"m"};
     urls=[];turn=0;c2=mk2(async(u)=>{urls.push(u);return say("hi")},{SRV:false});await run(c2,"اهلا");T("no local server: memory not fetched",!urls.some(u=>u.startsWith("http://srv")));
     const ctl2=new AbortController();turn=0;c2=mk2(async(u,o)=>{if(u==="http://srv/api/memory")return reply({notes:[]});if(u==="http://srv/api/factory/start")return reply({run:"r1"});if(u.startsWith("http://srv/api/factory/state"))return reply({state:"running",chat:[]});return turn++?say("x"):call("build_website",{goal:"موقع"})});
     const pr2=c2.runAgent(cfg,[],[{role:"user",content:"بالمصنع"}],()=>{},ctl2.signal);setTimeout(()=>ctl2.abort(),60);e=null;try{await pr2}catch(x){e=x}T("stop button ends factory polling",e&&/⏹/.test(e.message));
+    // hands (browser/google/computer) with the confirm buttons
+    const handsSrv=(posts,first)=>async(u,o)=>{if(u==="http://srv/api/memory")return reply({notes:[]});
+      if(u.startsWith("http://srv/api/hands/")){posts.push({u,b:JSON.parse(o.body)});return reply(u.endsWith("/confirm")?{step:"🖱 ضغطت «إرسال»",result:"sent page"}:first)}
+      return turn++?say("done"):call("browser",{action:"click",n:2})};
+    let posts=[];turn=0;c2=mk2(handsSrv(posts,{step:"🌐 فتحت: X",result:"page text"}));r_=await run(c2,"افتح");
+    T("hands: tool args go to /api/hands/<tool>, step shown in chat, result to the model",posts[0].u==="http://srv/api/hands/browser"&&posts[0].b.n===2&&r_.ev.some(e=>e.type==="hand"&&/فتحت/.test(e.text))&&r_.tool==="page text");
+    let asked="";posts=[];turn=0;c2=mk2(handsSrv(posts,{confirm:{id:"cid-1",text:"أضغط «إرسال»؟"},step:"⏸ مستني موافقتك"}),{askConfirm:async t=>{asked=t;return true}});r_=await run(c2,"ابعت");
+    T("hands: irreversible step waits for the user's yes, then posts the confirm id",asked==="أضغط «إرسال»؟"&&posts[1].u==="http://srv/api/hands/confirm"&&posts[1].b.id==="cid-1"&&r_.tool==="sent page");
+    T("hands: the model never sees the confirm id",!JSON.stringify(r_.h).includes("cid-1"));
+    posts=[];turn=0;c2=mk2(handsSrv(posts,{confirm:{id:"cid-2",text:"أحذف؟"}}),{askConfirm:async()=>false});r_=await run(c2,"احذف");
+    T("hands: a no means nothing is posted and the model is told not to work around it",posts.length===1&&/رفض/.test(r_.tool)&&/متحاولش/.test(r_.tool));
+    posts=[];turn=0;c2=mk2(handsSrv(posts,{confirm:{id:"cid-3",text:"أبعت؟"}}));r_=await run(c2,"ابعت");
+    T("hands: no confirm UI available counts as no",posts.length===1&&/رفض/.test(r_.tool));
   }
   // ZIP integrity (needs python3 or unzip; otherwise reported as skipped, not passed)
   const zc={TextEncoder,Blob,Uint8Array,DataView,ArrayBuffer};vm.createContext(zc);vm.runInContext(zipSrc+";this.makeZip=makeZip;",zc);

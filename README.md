@@ -50,6 +50,22 @@ These three tools go through the local server (`start.bat`), from the server cop
 - **`remember`**: saves one-line notes (clients, projects, preferences) to `weblume-memory.json` (git-ignored, local only, max 200). The notes go into the system prompt of every message. Anything that looks like a key, token, password or card number is refused.
 The local fine-tuned «جهازي» `weblume` model path does not use these tools.
 
+## Hands: Chrome, Google and the laptop
+Three more tools through the local server (`start.bat`). Every step shows as a line in the chat. Anything that can't be undone (a click on send/submit/buy/delete/confirm, Enter outside a search box, adding a calendar event, writing rows to a sheet, running a command) shows **✅ موافق / ✖ لا** buttons and runs only after you click موافق. The model never gets the approval id, so it can't approve itself.
+- **`browser`**: drives its own Chrome window with a separate profile (`%LOCALAPPDATA%\Weblume\chrome-profile`), so your normal Chrome is untouched. Actions: `open`, `read` (page text + numbered buttons/fields), `click`, `type`, `back`, `google_search`, `maps_search` (cafés/restaurants from Google Maps with website, phone, address; Instagram/Linktree-only counts as no website; anything in `weblume-company/contacted.json` is marked **[اتكلمنا معاه]** and the model is told not to message it without asking you). It never types into password/card/code fields or types anything that looks like a key, and it never solves CAPTCHAs: it tells you to.
+- **`google`**: Gmail search/read and **drafts only** (no send action exists), Calendar list + add, Drive search, Sheets read + append (e.g. the leads tracker). Rows are written as plain text, never formulas.
+- **`computer`**: `open_path` (folders and normal files, never programs), `open_app` and `run_command` (only names in the allowed list), `read_file` (text files or a folder listing; key/token/password files are refused and keys inside files are hidden).
+
+**Setup, once:**
+1. Run `start.bat` (it installs the Chrome helper the first time). The first browser task opens a Chrome window: sign in to WhatsApp Web, Instagram, Google etc. there yourself. It remembers.
+2. Google (free): open [console.cloud.google.com](https://console.cloud.google.com) → new project → **APIs & Services → Library**: enable Gmail API, Google Calendar API, Google Drive API, Google Sheets API → **OAuth consent screen**: External, add your Gmail as a test user → **Credentials → Create credentials → OAuth client ID → Desktop app** → Download JSON → save it as `google-client.json` in this folder.
+3. With `start.bat` running, open `http://127.0.0.1:8787/api/google/connect` and click Allow. Done. (If Google ever says the token expired, open that link again.)
+4. Optional: add your own apps/commands in `weblume-hands.json` in this folder:
+   `{"apps":{"figma":"figma"},"commands":{"site-status":{"cmd":"git","args":["status"],"cwd":"C:\\Users\\you\\Downloads\\Projects\\weblume-site"}}}`
+   Built in: apps `notepad, calculator, explorer, chrome, vscode, paint`; commands `ollama-list, gpu, node-version`.
+
+`google-client.json`, `google-token.json` and `weblume-hands.json` are git-ignored and never sent to the browser.
+
 ## Thinking panel
 While the agent works, a collapsible panel with the animated Weblume mark shows the phase and timer. Reasoning text, tool calls and provider switches stay inside it, collapsed by default.
 
@@ -103,6 +119,9 @@ Verify the token without spending credits: `curl http://127.0.0.1:8787/api/provi
 | `POST /api/factory/start` | `{goal}` | `{run}` |
 | `GET /api/factory/state?run=` | run id | `{state,error,site,siteUrl,chat:[{from,text}],ask}` |
 | `GET /api/memory` / `POST /api/memory` | none / `{text}` | `{notes:[{text,t}]}` / `{ok:true}` |
+| `POST /api/hands/{browser,google,computer}` | `{action,...}` | `{step,result}` or `{confirm:{id,text}}` |
+| `POST /api/hands/confirm` | `{id}` (chat UI only, after موافق) | `{step,result}`; 410 if used/expired |
+| `GET /api/google/connect` / `callback` | browser visit | Google consent → saves `google-token.json` |
 
 Errors are `{error:"..."}` with: 400 bad input, 403 foreign Origin, 413/415 body problems, 429 provider quota, 502 provider error, 503 provider not configured, 504 provider timeout.
 
@@ -114,7 +133,7 @@ Errors are `{error:"..."}` with: 400 bad input, 403 foreign Origin, 413/415 body
 - `REPLICATE_API_BASE` and `REPLICATE_OUTPUT_HOST_ALLOWLIST` exist for tests/self-hosted gateways only. Leave them unset.
 
 ## Testing: what is and is not verified
-Automated (`npm test`): 81 backend + 42 frontend-logic checks against **mock** providers. They verify our request construction, status mapping, error handling, timeouts, redaction, streaming and route contracts. They do **not** prove that Replicate or any image service accepts the requests.
+Automated (`npm test`): 56 hands (fake Chrome page, mock Google APIs, fake process spawn) + 81 backend + 47 frontend-logic checks against **mock** providers. Checked by hand on the laptop: `maps_search` against real Google Maps in Chrome (`google_search` in headless Chrome got Google's robot check, which it correctly hands to you; not yet seen returning results in the visible window), and the chat → Chrome → ✅/✖ → command loop in the real UI. Not checked: real Google OAuth/Gmail/Calendar/Sheets calls (needs your OAuth client). They verify our request construction, status mapping, error handling, timeouts, redaction, streaming and route contracts. They do **not** prove that Replicate or any image service accepts the requests.
 
 Not verified here: any real Replicate/image call (no credentials in the build environment), the UI in a real browser (no browser available), skills import/export UI, chat history UI, the File System Access folder saving, mobile/RTL layout. Please smoke-test those in Chrome/Edge before relying on them.
 

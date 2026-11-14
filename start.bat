@@ -7,6 +7,7 @@ echo.
 echo   Weblume AI is starting... the browser will open by itself.
 echo   Keep this window open. Close it to stop.
 echo.
+if not exist "node_modules\playwright-core\package.json" call npm install --omit=dev --no-audit --no-fund
 set OPEN_BROWSER=1
 node "server\proxy.js"
 echo.

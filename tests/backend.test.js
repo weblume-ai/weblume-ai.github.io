@@ -96,7 +96,7 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"GET","/");T("serves index.html",r.s===200&&/<html/.test(r.t));
   // frontend <-> backend contract
   const html=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
-  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings|search|factory\/(start|state)|memory)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
+  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings|search|factory\/(start|state)|memory|hands\/)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
   T("frontend polls with fields backend returns (status/url/error/id)",/j\.status==="succeeded"/.test(html)&&/j\.url/.test(html)&&/j\.error/.test(html)&&/vid=j\.id/.test(html)&&/j\.status==="canceled"/.test(html));
   // LLM relay (providers that block browser CORS), against a LOCAL MOCK upstream
   E.LLM_NVIDIA_BASE="http://127.0.0.1:"+mp+"/nv";

@@ -1,0 +1,227 @@
+"use strict";
+// Weblume "hands": a browser it drives (dedicated Chrome profile, Playwright), Asser's Google account (his own OAuth client),
+// and small computer tasks. Anything irreversible returns {confirm:{id,text}} instead of running; it runs only when the
+// chat UI posts that id to /api/hands/confirm after Asser clicks "موافق". The model never sees or sends confirm ids.
+const fs=require("fs"),path=require("path"),os=require("os"),crypto=require("crypto"),cp=require("child_process");
+const ROOT=path.join(__dirname,"..");
+const SECRET_RX=/(sk-|sk_|gsk_|nvapi-|r8_|ghp_|github_pat_|AIza|xox[abp]-|eyJ|ya29\.|1\/\/)[\w-]{8,}|[A-Za-z0-9]{32,}|password|passwd|باسورد|باسوورد|كلمة (السر|المرور)|رقم (الكارت|البطاقة|الفيزا)|\b(?:\d[ -]?){13,19}\b/i;
+const ok=(step,result,extra)=>({code:200,body:Object.assign({step,result},extra||{})});
+const bad=(code,error)=>({code,body:{error}});
+const str=(v,n)=>typeof v==="string"?v.trim().slice(0,n):"";
+
+// ---- confirmations: one-time, bound to the exact action, expire after 5 minutes
+const pending=new Map();
+function ask(text,run){const id=crypto.randomUUID();pending.set(id,{text,run,t:Date.now()});
+  for(const[k,v]of pending)if(Date.now()-v.t>300000)pending.delete(k);
+  return{code:200,body:{confirm:{id,text},step:"⏸ مستني موافقتك: "+text}}}
+async function confirm(b){const p=pending.get(b&&b.id);pending.delete(b&&b.id);
+  if(!p||Date.now()-p.t>300000)return bad(410,"الموافقة دي انتهت أو اتستخدمت. اطلب الخطوة تاني.");
+  return p.run()}
+
+// ---- browser (Playwright driving the installed Chrome with its own profile; Asser signs in there himself)
+const PROFILE=()=>process.env.WEBLUME_CHROME_PROFILE||path.join(process.env.LOCALAPPDATA||os.homedir(),"Weblume","chrome-profile");
+let ctx=null,page=null,launcher=null;
+const setLauncher=f=>{launcher=f;ctx=null;page=null}; // tests inject a fake browser
+async function getPage(){
+  if(page&&!page.isClosed())return page;
+  if(!ctx){let launch=launcher;
+    if(!launch){let pw;try{pw=require("playwright-core")}catch(e){throw Object.assign(new Error("مكتبة المتصفح مش متسطبة. اقفل start.bat وشغّله تاني (بيسطبها لوحده)."),{code:503})}
+      launch=dir=>pw.chromium.launchPersistentContext(dir,{channel:"chrome",headless:process.env.WEBLUME_HEADLESS==="1",viewport:null})}
+    try{ctx=await launch(PROFILE())}catch(e){throw Object.assign(new Error("مش قادر أفتح كروم: "+String(e.message).split("\n")[0].slice(0,200)+" (لو نافذة كروم Weblume مفتوحة ومعلّقة اقفلها)"),{code:502})}
+    ctx.on("close",()=>{ctx=null;page=null})}
+  page=ctx.pages()[0]||await ctx.newPage();return page}
+// Runs in the page: numbers the visible things you can click or type in, returns the page as text.
+const MARK=()=>{document.querySelectorAll("[data-wl]").forEach(e=>e.removeAttribute("data-wl"));
+  const vis=e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=="hidden"&&s.display!=="none"};
+  const items=[];let n=0;
+  for(const e of document.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[role=button],[role=link],[role=searchbox],[role=textbox],[contenteditable=true]')){
+    if(n>=120)break;if(!vis(e))continue;e.setAttribute("data-wl",++n);
+    const pw=(e.getAttribute("type")||"").toLowerCase()==="password";
+    const label=(e.getAttribute("aria-label")||e.innerText||(pw?"":e.value)||e.placeholder||e.title||e.name||"").replace(/\s+/g," ").trim().slice(0,80);
+    items.push({n,tag:e.tagName.toLowerCase()+(e.tagName==="INPUT"?":"+(e.type||"text"):""),label:pw?"(خانة باسورد)":label})}
+  return{url:location.href,title:document.title,text:(document.body?document.body.innerText:"").replace(/\n{3,}/g,"\n\n").slice(0,6000),items}};
+const DESCRIBE=n=>{const e=document.querySelector('[data-wl="'+n+'"]');if(!e)return null;const f=e.form||e.closest("form"),t=(e.getAttribute("type")||"").toLowerCase();
+  return{tag:e.tagName.toLowerCase(),type:t,text:(e.innerText||(t==="password"?"":e.value)||"").replace(/\s+/g," ").trim().slice(0,120),
+    attrs:[e.name,e.id,e.placeholder,e.getAttribute("aria-label"),e.title,e.getAttribute("autocomplete")].filter(Boolean).join(" ").slice(0,300),
+    autocomplete:(e.getAttribute("autocomplete")||"").toLowerCase(),
+    submit:(e.tagName==="BUTTON"&&(t||"submit")==="submit"&&!!f)||(e.tagName==="INPUT"&&/^(submit|image)$/.test(t)),
+    search:t==="search"||!!e.closest("[role=search]")||!!(f&&/search/i.test(f.getAttribute("action")||""))||/^(q|query|search|s|search_query)$/i.test(e.name||""),
+    host:location.hostname}};
+const RISKY=/\b(send|submit|buy|purchase|order|checkout|pay|payment|delete|remove|post|publish|confirm|subscribe|sign ?up|register|book|reserve|transfer|donate|unsubscribe|apply)\b|إرسال|ارسال|ابعت|أرسل|ارسل|شراء|اشتر|ادفع|دفع|حذف|احذف|امسح|نشر|انشر|تأكيد|تاكيد|أكد|اطلب|إتمام|اتمام|اشترك|سجّل|سجل|احجز|حجز|تحويل/i;
+const SEARCH_HOST=/(^|\.)(google\.[a-z.]+|bing\.com|duckduckgo\.com|youtube\.com)$/;
+const clickRisk=d=>RISKY.test(d.text+" "+d.attrs)||(d.submit&&!d.search&&!SEARCH_HOST.test(d.host));
+const enterRisk=d=>!d.search&&!SEARCH_HOST.test(d.host);
+const secretField=d=>d.type==="password"||/^cc-|password|one-time-code/.test(d.autocomplete)||/pass|card|cvv|cvc|iban|otp|\bpin\b|security.?code|كلمة|بطاقة|كارت|رمز/i.test(d.attrs);
+const pageText=r=>"العنوان: "+r.title+"\nالرابط: "+r.url+"\n\nالنص:\n"+r.text+"\n\nحاجات تقدر تضغطها أو تكتب فيها (استخدم الرقم n):\n"+r.items.map(i=>"["+i.n+"] "+i.tag+" "+i.label).join("\n");
+async function readPage(p){await p.waitForLoadState("domcontentloaded").catch(()=>{});return p.evaluate(MARK)}
+const captcha=u=>/google\.[a-z.]+\/sorry\//.test(u);
+const CAPTCHA_MSG="جوجل طالب يتأكد إنك مش روبوت. حلّها انت في نافذة كروم Weblume وبعدين قولي أكمّل (أنا ممنوع أحل الكابتشا).";
+function normName(s){return String(s||"").normalize("NFKD").replace(/\p{Mn}/gu,"").toLowerCase().replace(/[إأآا]/g,"ا").replace(/ة/g,"ه").replace(/ى/g,"ي").replace(/[^\p{L}\p{N}]+/gu,"")} // same as weblume-company rules.normalize_name
+const CONTACTED=()=>process.env.WEBLUME_CONTACTED_FILE||path.join(ROOT,"..","weblume-company","contacted.json");
+function contactedSet(){try{const j=JSON.parse(fs.readFileSync(CONTACTED(),"utf8"));return new Set((Array.isArray(j)?j:[]).map(c=>normName(c&&c.business)).filter(Boolean))}catch(e){return null}}
+// Runs in the page: Google Maps result cards (the list has no website/phone; PLACE reads those from each place page).
+const MAPS=()=>[...document.querySelectorAll('div[role=feed] a[href*="/maps/place/"]')].map(a=>{const c=a.parentElement||a,name=a.getAttribute("aria-label")||"";
+  const lines=(c.innerText||"").split("\n").map(x=>x.trim()).filter(x=>x&&x!==name),star=c.querySelector('[role=img][aria-label]');
+  return{name,url:a.href.split("?")[0],rating:star?star.getAttribute("aria-label"):"",info:lines.slice(0,3).join(" · ").slice(0,160)}});
+const PLACE=()=>{const q=s=>document.querySelector(s);const ph=q('[data-item-id^="phone:tel:"]'),site=q('a[data-item-id="authority"]'),ad=q('[data-item-id="address"]');
+  return{website:site?site.href:"",phone:ph?ph.getAttribute("data-item-id").slice(10):"",address:ad?ad.innerText.replace(/\s+/g," ").trim().slice(0,160):""}};
+const SOCIAL=/^https?:\/\/([\w-]+\.)*(instagram\.com|facebook\.com|fb\.com|linktr\.ee|linkfly\.to|tiktok\.com|wa\.me|whatsapp\.com|x\.com|twitter\.com|snapchat\.com|t\.me)\//i;
+async function browser(b){const a=str(b.action,30);
+  if(a==="open"){const u=str(b.url,1000);if(!/^https?:\/\//i.test(u))return bad(400,"الرابط لازم يبدأ بـ http أو https.");
+    const p=await getPage();await p.goto(u,{waitUntil:"domcontentloaded",timeout:30000});if(captcha(p.url()))return ok("🧩 جوجل طالب كابتشا",CAPTCHA_MSG);
+    const r=await readPage(p);return ok("🌐 فتحت: "+r.title,pageText(r))}
+  if(a==="read"){const r=await readPage(await getPage());return ok("📖 قريت الصفحة: "+r.title,pageText(r))}
+  if(a==="back"){const p=await getPage();await p.goBack({timeout:15000}).catch(()=>{});const r=await readPage(p);return ok("↩ رجعت: "+r.title,pageText(r))}
+  if(a==="google_search"){const q=str(b.query,300);if(!q)return bad(400,"اكتب كلمات البحث.");const p=await getPage();
+    await p.goto("https://www.google.com/search?q="+encodeURIComponent(q),{waitUntil:"domcontentloaded",timeout:30000});
+    if(captcha(p.url()))return ok("🧩 جوجل طالب كابتشا",CAPTCHA_MSG);
+    const rs=await p.evaluate(()=>[...document.querySelectorAll("a h3")].map(h=>{const a=h.closest("a");return{title:h.innerText.trim(),url:a.href}}).filter(x=>/^https?:/.test(x.url)&&!/google\.[a-z.]+\//.test(x.url)).slice(0,10));
+    return ok("🔎 بحثت في جوجل: «"+q+"» ("+rs.length+" نتيجة)",rs.length?rs.map((x,i)=>(i+1)+". "+x.title+"\n"+x.url).join("\n\n"):"مفيش نتايج ظاهرة. استخدم read تشوف الصفحة.")}
+  if(a==="maps_search"){const q=str(b.query,200);if(!q)return bad(400,"اكتب نوع المكان والمدينة، مثلا: كافيهات في جدة.");const max=Math.min(Math.max(+b.max||20,1),60);
+    const p=await getPage();await p.goto("https://www.google.com/maps/search/"+encodeURIComponent(q)+"?hl=en",{waitUntil:"domcontentloaded",timeout:30000});
+    if(captcha(p.url()))return ok("🧩 جوجل طالب كابتشا",CAPTCHA_MSG);
+    await p.waitForSelector("div[role=feed]",{timeout:20000}).catch(()=>{});
+    let list=[];for(let i=0;i<12;i++){list=await p.evaluate(MAPS);if(list.length>=max)break;
+      await p.evaluate(()=>{const f=document.querySelector("div[role=feed]");if(f)f.scrollBy(0,2500)});await p.waitForTimeout(1500)}
+    const seen=new Set();list=list.filter(x=>x.name&&!seen.has(x.url)&&seen.add(x.url)).slice(0,max);
+    for(const x of list){await p.goto(x.url+"?hl=en",{waitUntil:"domcontentloaded",timeout:30000}).catch(()=>{});
+      await p.waitForSelector("[data-item-id]",{timeout:8000}).catch(()=>{});Object.assign(x,await p.evaluate(PLACE).catch(()=>({website:"",phone:"",address:""})));
+      if(SOCIAL.test(x.website)){x.social=x.website;x.website=""}}
+    const done=contactedSet();for(const x of list)x.contacted=done?done.has(normName(x.name)):null;
+    const noSite=list.filter(x=>!x.website);
+    const result=(done?"":"⚠️ مش قادر أقرا contacted.json، فمش عارف مين اتكلمنا معاه قبل كده. ماتبعتش لحد قبل ما تسأل أسير.\n")+
+      "لقيت "+list.length+" مكان، منهم "+noSite.length+" من غير موقع. اللي عليه [اتكلمنا معاه] ممنوع نبعتله تاني من غير ما نسأل أسير.\n\n"+
+      list.map((x,i)=>(i+1)+". "+x.name+(x.contacted?" [اتكلمنا معاه]":"")+(x.website?" — موقع: "+x.website:" — من غير موقع"+(x.social?" (سوشيال بس: "+x.social+")":""))+(x.rating?" — "+x.rating:"")+(x.phone?" — "+x.phone:"")+(x.info?"\n   "+x.info:"")+(x.address?"\n   "+x.address:"")+"\n   "+x.url).join("\n");
+    return ok("📍 جمعت "+list.length+" مكان من خرائط جوجل («"+q+"»)، "+noSite.length+" من غير موقع",result,{listings:list})}
+  const n=Math.trunc(+b.n);
+  if(a==="click"||a==="type"){if(!(n>0))return bad(400,"محتاج رقم العنصر n من read.");const p=await getPage();const d=await p.evaluate(DESCRIBE,n);
+    if(!d)return bad(404,"العنصر رقم "+n+" مش موجود. اعمل read تاني.");const sel='[data-wl="'+n+'"]',name=(d.text||d.attrs||d.tag).slice(0,80);
+    if(a==="click"){const run=async()=>{await p.click(sel,{timeout:15000});await p.waitForTimeout(800);const r=await readPage(p);return ok("🖱 ضغطت «"+name+"»",pageText(r))};
+      return clickRisk(d)?ask("أضغط «"+name+"» في "+d.host+"؟ (ممكن يبعت أو يأكد حاجة)",run):run()}
+    const text=typeof b.text==="string"?b.text.slice(0,2000):"";
+    if(secretField(d))return bad(403,"دي خانة باسورد أو كارت أو كود. أنا ممنوع أكتب فيها، أسير يكتبها بنفسه في نافذة كروم.");
+    if(SECRET_RX.test(text))return bad(403,"النص ده شكله باسورد أو مفتاح أو رقم كارت، مش هكتبه.");
+    await p.fill(sel,text,{timeout:15000});
+    if(!b.enter)return ok("⌨ كتبت في «"+name+"»: "+text.slice(0,80),"✅ اتكتب. لو عايز تبعته استخدم enter:true أو اضغط الزرار.");
+    const go=async()=>{await p.press(sel,"Enter");await p.waitForTimeout(1200);const r=await readPage(p);return ok("⏎ كتبت «"+text.slice(0,60)+"» ودوست Enter",pageText(r))};
+    return enterRisk(d)?ask("أبعت «"+text.slice(0,120)+"» (Enter) في "+d.host+"؟",go):go()}
+  return bad(400,"action لازم: open, read, click, type, back, google_search, maps_search.")}
+
+// ---- Google (Asser's own Desktop OAuth client; tokens in a git-ignored file next to the repo, never sent to the browser)
+const G_CLIENT=()=>process.env.WEBLUME_GOOGLE_CLIENT||path.join(ROOT,"google-client.json");
+const G_TOKEN=()=>process.env.WEBLUME_GOOGLE_TOKEN||path.join(ROOT,"google-token.json");
+const G_SCOPES=["gmail.readonly","gmail.compose","calendar.events","drive.readonly","spreadsheets"].map(s=>"https://www.googleapis.com/auth/"+s);
+const gurl=(host,p)=>process.env.GOOGLE_API_BASE?process.env.GOOGLE_API_BASE+"/"+host+p:"https://"+host+p; // base override is for tests only
+const b64u=b=>Buffer.from(b).toString("base64").replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+function gClient(){try{const j=JSON.parse(fs.readFileSync(G_CLIENT(),"utf8"));const c=j.installed||j.web||j;return c.client_id&&c.client_secret?c:null}catch(e){return null}}
+function gToken(){try{return JSON.parse(fs.readFileSync(G_TOKEN(),"utf8"))}catch(e){return null}}
+const saveToken=t=>fs.writeFileSync(G_TOKEN(),JSON.stringify(t),{mode:0o600});
+const flows=new Map();
+const CONNECT_HINT=port=>"جوجل مش متوصل. افتح http://127.0.0.1:"+port+"/api/google/connect مرة واحدة ووافق.";
+function gConnect(host){const c=gClient();if(!c)return{html:"<p>مفيش google-client.json في فولدر weblume-ai. اتبع خطوات README (Google services).</p>",code:503};
+  const state=b64u(crypto.randomBytes(24)),verifier=b64u(crypto.randomBytes(48)),redirect="http://"+host+"/api/google/callback";
+  flows.set(state,{verifier,redirect,t:Date.now()});
+  const q=new URLSearchParams({client_id:c.client_id,redirect_uri:redirect,response_type:"code",scope:G_SCOPES.join(" "),access_type:"offline",prompt:"consent",state,
+    code_challenge:b64u(crypto.createHash("sha256").update(verifier).digest()),code_challenge_method:"S256"});
+  return{redirect:"https://accounts.google.com/o/oauth2/v2/auth?"+q}}
+async function tokenCall(form){const r=await fetch(gurl("oauth2.googleapis.com","/token"),{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(form),redirect:"error"});
+  return{ok:r.ok,j:await r.json().catch(()=>({}))}}
+async function gCallback(qs){const f=flows.get(qs.get("state")||"");flows.delete(qs.get("state")||"");
+  if(!f||Date.now()-f.t>600000)return{code:400,html:"<p>الرابط ده قديم. افتح /api/google/connect تاني.</p>"};
+  if(qs.get("error"))return{code:400,html:"<p>جوجل رجّع: "+String(qs.get("error")).replace(/[<>&"]/g,"")+"</p>"};
+  const c=gClient();const r=await tokenCall({code:qs.get("code")||"",client_id:c.client_id,client_secret:c.client_secret,redirect_uri:f.redirect,grant_type:"authorization_code",code_verifier:f.verifier});
+  if(!r.ok||!r.j.refresh_token)return{code:502,html:"<p>جوجل مارضيش يدي توكن. جرّب تاني.</p>"};
+  saveToken({refresh_token:r.j.refresh_token,access_token:r.j.access_token,expiry:Date.now()+(r.j.expires_in||3600)*1000});
+  return{code:200,html:"<p>✅ جوجل اتوصل بـ Weblume AI. اقفل الصفحة دي وارجع للشات.</p>"}}
+async function accessToken(port){const t=gToken(),c=gClient();if(!t||!t.refresh_token||!c)throw Object.assign(new Error(c?CONNECT_HINT(port):"مفيش google-client.json. اتبع خطوات README (Google services)."),{code:401});
+  if(t.access_token&&t.expiry>Date.now()+60000)return t.access_token;
+  const r=await tokenCall({refresh_token:t.refresh_token,client_id:c.client_id,client_secret:c.client_secret,grant_type:"refresh_token"});
+  if(!r.ok){if(r.j.error==="invalid_grant")try{fs.unlinkSync(G_TOKEN())}catch(e){}throw Object.assign(new Error(CONNECT_HINT(port)),{code:401})}
+  saveToken({...t,access_token:r.j.access_token,expiry:Date.now()+(r.j.expires_in||3600)*1000});return r.j.access_token}
+async function gapi(port,method,host,p,body){const tok=await accessToken(port);
+  const r=await fetch(gurl(host,p),{method,headers:{Authorization:"Bearer "+tok,...(body?{"Content-Type":"application/json"}:{})},body:body&&JSON.stringify(body),redirect:"error"});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw Object.assign(new Error((r.status===401?CONNECT_HINT(port):"جوجل رفض ("+r.status+"): "+String(j.error&&j.error.message||"").slice(0,200))),{code:r.status===401?401:502});
+  return j}
+const sheetId=s=>{const m=String(s||"").match(/\/spreadsheets\/d\/([\w-]{20,})/)||String(s||"").match(/^([\w-]{20,})$/);return m?m[1]:""};
+const hdr=(m,n)=>((m.payload&&m.payload.headers)||[]).find(h=>h.name.toLowerCase()===n.toLowerCase())?.value||"";
+const unb64=s=>Buffer.from(String(s||"").replace(/-/g,"+").replace(/_/g,"/"),"base64").toString("utf8");
+function mailText(part){if(!part)return"";if(part.mimeType==="text/plain"&&part.body&&part.body.data)return unb64(part.body.data);
+  for(const x of part.parts||[]){const t=mailText(x);if(t)return t}
+  if(part.mimeType==="text/html"&&part.body&&part.body.data)return unb64(part.body.data).replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi,"").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/\s+/g," ");return""}
+const mimeWord=s=>/^[\x20-\x7e]*$/.test(s)?s:"=?UTF-8?B?"+Buffer.from(s).toString("base64")+"?=";
+async function google(b,port){const a=str(b.action,30);const g=(m,h,p,body)=>gapi(port,m,h,p,body);
+  if(a==="status"){const c=!!gClient(),t=!!(gToken()||{}).refresh_token;return ok("🔗 حالة جوجل",c&&t?"✅ جوجل متوصل.":c?CONNECT_HINT(port):"مفيش google-client.json. اتبع README.")}
+  if(a==="gmail_search"){const q=str(b.query,300),max=Math.min(Math.max(+b.max||10,1),20);
+    const l=await g("GET","gmail.googleapis.com","/gmail/v1/users/me/messages?maxResults="+max+"&q="+encodeURIComponent(q));
+    const ms=await Promise.all((l.messages||[]).map(m=>g("GET","gmail.googleapis.com","/gmail/v1/users/me/messages/"+encodeURIComponent(m.id)+"?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date")));
+    return ok("📬 دوّرت في Gmail: «"+q+"» ("+ms.length+" رسالة)",ms.length?ms.map((m,i)=>(i+1)+". ["+m.id+"] "+hdr(m,"Subject")+"\n   من: "+hdr(m,"From")+" — "+hdr(m,"Date")+"\n   "+String(m.snippet||"").slice(0,200)).join("\n"):"مفيش رسايل.")}
+  if(a==="gmail_read"){const id=str(b.id,100);if(!/^[\w-]+$/.test(id))return bad(400,"id غلط.");
+    const m=await g("GET","gmail.googleapis.com","/gmail/v1/users/me/messages/"+id+"?format=full");
+    return ok("📧 قريت رسالة: "+hdr(m,"Subject").slice(0,80),"الموضوع: "+hdr(m,"Subject")+"\nمن: "+hdr(m,"From")+"\nالتاريخ: "+hdr(m,"Date")+"\n\n"+mailText(m.payload).trim().slice(0,8000))}
+  if(a==="gmail_draft"){const to=str(b.to,300),subject=str(b.subject,300).replace(/[\r\n]/g," "),body=typeof b.body==="string"?b.body.slice(0,20000):"";
+    if(!/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(to))return bad(400,"إيميل المستلم غلط.");
+    const raw=b64u("To: "+to+"\r\nSubject: "+mimeWord(subject)+"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"+Buffer.from(body).toString("base64"));
+    await g("POST","gmail.googleapis.com","/gmail/v1/users/me/drafts",{message:{raw}});
+    return ok("📝 عملت مسودة لـ "+to+": "+subject.slice(0,60),"✅ المسودة اتحفظت في Gmail (ماتبعتتش). أسير يراجعها ويبعتها بنفسه من Gmail.")}
+  if(a==="calendar_list"){const days=Math.min(Math.max(+b.days||7,1),60),now=new Date();
+    const j=await g("GET","www.googleapis.com","/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=50&timeMin="+encodeURIComponent(now.toISOString())+"&timeMax="+encodeURIComponent(new Date(+now+days*864e5).toISOString()));
+    const ev=j.items||[];return ok("📅 قريت التقويم ("+ev.length+" موعد في "+days+" يوم)",ev.length?ev.map(e=>"- "+(e.start&&(e.start.dateTime||e.start.date))+" — "+(e.summary||"(من غير عنوان)")+(e.location?" @ "+e.location:"")).join("\n"):"مفيش مواعيد.")}
+  if(a==="calendar_add"){const title=str(b.title,200),start=str(b.start,40);let end=str(b.end,40);
+    if(!title||isNaN(Date.parse(start)))return bad(400,"محتاج title و start بتاريخ ووقت (مثلا 2026-11-20T15:00).");
+    if(isNaN(Date.parse(end)))end=new Date(Date.parse(start)+3600000).toISOString();
+    const tz=Intl.DateTimeFormat().resolvedOptions().timeZone,ev={summary:title,description:str(b.description,2000),start:{dateTime:start,timeZone:tz},end:{dateTime:end,timeZone:tz}};
+    return ask("أضيف موعد «"+title+"» يوم "+start.replace("T"," ")+" في تقويم جوجل؟",async()=>{const j=await g("POST","www.googleapis.com","/calendar/v3/calendars/primary/events",ev);return ok("📅 ضفت موعد: "+title,"✅ الموعد اتضاف: "+(j.htmlLink||""))})}
+  if(a==="drive_search"){const q=str(b.query,200).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+    const j=await g("GET","www.googleapis.com","/drive/v3/files?pageSize=20&fields="+encodeURIComponent("files(id,name,mimeType,modifiedTime,webViewLink)")+"&q="+encodeURIComponent((q?"name contains '"+q+"' and ":"")+"trashed=false"));
+    const f=j.files||[];return ok("🗂 دوّرت في Drive: «"+q+"» ("+f.length+" ملف)",f.length?f.map(x=>"- "+x.name+" ("+x.mimeType.split(".").pop()+") id="+x.id+"\n  "+(x.webViewLink||"")).join("\n"):"مفيش ملفات.")}
+  if(a==="sheet_read"||a==="sheet_append"){const id=sheetId(b.sheet);if(!id)return bad(400,"محتاج رابط الشيت أو الـ id بتاعه.");const range=str(b.range,100)||(a==="sheet_read"?"A1:Z100":"A1");
+    const base="/v4/spreadsheets/"+id+"/values/"+encodeURIComponent(range);
+    if(a==="sheet_read"){const j=await g("GET","sheets.googleapis.com",base);const v=j.values||[];return ok("📊 قريت الشيت ("+v.length+" صف)",v.length?v.map(r=>r.join(" | ")).join("\n").slice(0,8000):"الشيت فاضي.")}
+    const rows=Array.isArray(b.rows)?b.rows.filter(Array.isArray).slice(0,200).map(r=>r.slice(0,30).map(c=>String(c==null?"":c).slice(0,1000))):[];
+    if(!rows.length)return bad(400,"rows لازم تبقى صفوف، مثلا [[\"كافيه نور\",\"جدة\",\"من غير موقع\"]].");
+    if(rows.some(r=>r.some(c=>SECRET_RX.test(c))))return bad(403,"فيه خانة شكلها باسورد أو مفتاح أو رقم كارت، مش هكتبها.");
+    const meta=await g("GET","sheets.googleapis.com","/v4/spreadsheets/"+id+"?fields=properties.title");
+    return ask("أضيف "+rows.length+" صف في شيت «"+(meta.properties&&meta.properties.title||id)+"»؟ أول صف: "+rows[0].join(" | ").slice(0,150),async()=>{
+      await g("POST","sheets.googleapis.com",base+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{values:rows});
+      return ok("📊 ضفت "+rows.length+" صف في الشيت","✅ اتضافوا.")})}
+  return bad(400,"action لازم: status, gmail_search, gmail_read, gmail_draft, calendar_list, calendar_add, drive_search, sheet_read, sheet_append.")}
+
+// ---- computer: open a folder/file/app, run a named command from the whitelist, read a text file
+const HANDS_FILE=()=>process.env.WEBLUME_HANDS_FILE||path.join(ROOT,"weblume-hands.json");
+const DEFAULT_APPS={notepad:"notepad",calculator:"calc",explorer:"explorer",chrome:"chrome",vscode:"code",paint:"mspaint"};
+const DEFAULT_CMDS={"ollama-list":{cmd:"ollama",args:["list"]},"gpu":{cmd:"nvidia-smi",args:[]},"node-version":{cmd:"node",args:["-v"]}};
+function handsCfg(){let j={};try{j=JSON.parse(fs.readFileSync(HANDS_FILE(),"utf8"))||{}}catch(e){}
+  return{apps:{...DEFAULT_APPS,...(j.apps||{})},commands:{...DEFAULT_CMDS,...(j.commands||{})}}}
+const SAFE_OPEN=/\.(txt|md|pdf|png|jpe?g|gif|webp|svg|mp4|mov|webm|mp3|wav|html?|css|js|json|csv|docx?|xlsx?|pptx?|zip)$/i;
+const SECRET_FILE=/(^|[\\/])(\.env[^\\/]*|\.ssh|\.aws|\.git-credentials|\.npmrc|id_rsa[^\\/]*|weblume-settings\.json|google-(client|token)\.json|[^\\/]*(token|secret|credential|password|passwd|private|\.pem|\.key|\.p12|\.pfx|\.kdbx)[^\\/]*)([\\/]|$)/i;
+const resolvePath=p=>{p=str(p,500).replace(/^~(?=$|[\\/])/,os.homedir());return p?path.resolve(os.homedir(),p):""};
+let spawner=(cmd,args,opt)=>cp.spawn(cmd,args,opt);const setSpawner=f=>{spawner=f};
+const launch=(cmd,args)=>{const c=spawner(cmd,args,{detached:true,stdio:"ignore",windowsHide:false});c.on("error",()=>{});c.unref&&c.unref()};
+function runCmd(c){return new Promise(done=>{let out="";const ch=spawner(c.cmd,c.args||[],{cwd:c.cwd||os.homedir(),windowsHide:true,shell:false});
+  const t=setTimeout(()=>{try{ch.kill()}catch(e){}},Math.min(+c.timeout||60000,300000));
+  const add=d=>{out+=d;if(out.length>20000)out=out.slice(-20000)};ch.stdout&&ch.stdout.on("data",add);ch.stderr&&ch.stderr.on("data",add);
+  ch.on("error",e=>{clearTimeout(t);done({code:-1,out:"مش قادر أشغّله: "+e.message})});ch.on("close",code=>{clearTimeout(t);done({code,out})})})}
+async function computer(b){const a=str(b.action,30);
+  if(a==="open_path"){const p=resolvePath(b.path);if(!p)return bad(400,"محتاج path.");let s;try{s=fs.statSync(p)}catch(e){return bad(404,"مش لاقي: "+p)}
+    if(!s.isDirectory()&&!SAFE_OPEN.test(p))return bad(403,"مش هفتح الملف ده (ممكن يكون برنامج بيشتغل). أفتح فولدرات وملفات عادية بس.");
+    launch(process.platform==="win32"?"explorer":"xdg-open",[p]);return ok("📂 فتحت: "+p,"✅ اتفتح على الجهاز.")}
+  if(a==="open_app"){const cfg=handsCfg(),name=str(b.name,40).toLowerCase(),app=cfg.apps[name];
+    if(!app)return bad(403,"البرنامج ده مش في القايمة المسموحة: "+Object.keys(cfg.apps).join(", ")+". أسير يقدر يزوّده في weblume-hands.json.");
+    launch("cmd",["/c","start","",app]);return ok("🚀 فتحت "+name,"✅ اتفتح.")}
+  if(a==="run_command"){const cfg=handsCfg(),name=str(b.name,60),c=cfg.commands[name];
+    if(!c||typeof c.cmd!=="string")return bad(403,"الأمر ده مش في القايمة المسموحة: "+Object.keys(cfg.commands).join(", ")+". أسير يقدر يزوّده في weblume-hands.json.");
+    return ask("أشغّل الأمر «"+name+"» ("+[c.cmd,...(c.args||[])].join(" ")+")؟",async()=>{const r=await runCmd(c);
+      return ok("⚙ شغّلت «"+name+"» (كود "+r.code+")","كود الخروج: "+r.code+"\n"+r.out.replace(new RegExp(SECRET_RX.source,"gi"),"[مخفي]").slice(-6000))})}
+  if(a==="read_file"){const p=resolvePath(b.path);if(!p)return bad(400,"محتاج path.");
+    if(SECRET_FILE.test(p))return bad(403,"ده ملف مفاتيح أو باسوردات، مش هقراه.");
+    let s;try{s=fs.statSync(p)}catch(e){return bad(404,"مش لاقي: "+p)}
+    if(s.isDirectory()){const l=fs.readdirSync(p,{withFileTypes:true}).slice(0,200).map(d=>(d.isDirectory()?"📁 ":"📄 ")+d.name);return ok("📂 قريت فولدر: "+p,l.join("\n")||"فاضي.")}
+    const buf=fs.readFileSync(p).subarray(0,100000);if(buf.includes(0))return bad(415,"ده مش ملف نصي.");
+    return ok("📄 قريت: "+p+(s.size>100000?" (أول 100KB)":""),buf.toString("utf8").replace(new RegExp(SECRET_RX.source,"gi"),"[مخفي]"))}
+  return bad(400,"action لازم: open_path, open_app, run_command, read_file.")}
+
+async function handle(kind,b,port){try{
+  if(kind==="browser")return await browser(b);if(kind==="google")return await google(b,port);if(kind==="computer")return await computer(b);if(kind==="confirm")return await confirm(b);
+  return bad(404,"مش موجود.")}catch(e){return bad(e.code>=400&&e.code<600?e.code:502,String(e.message||e).split("\n")[0].slice(0,300))}}
+module.exports={handle,gConnect,gCallback,setLauncher,setSpawner,clickRisk,enterRisk,secretField,normName,SECRET_FILE};

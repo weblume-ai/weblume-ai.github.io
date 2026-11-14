@@ -8,7 +8,7 @@ const ROOT=path.join(__dirname,"..");
     const m=l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);if(!m||l.trim().startsWith("#"))continue;
     let v=m[2];if(/^(["']).*\1$/.test(v))v=v.slice(1,-1);if(process.env[m[1]]===undefined)process.env[m[1]]=v}}catch(e){}
 })();
-const images=require("./providers/openai-images"),video=require("./providers/replicate-video");
+const images=require("./providers/openai-images"),video=require("./providers/replicate-video"),hands=require("./hands");
 const MAX_BODY=100000;
 const baseHeaders={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"no-referrer"};
 const send=(res,c,b)=>{res.writeHead(c,{...baseHeaders,"Content-Type":"application/json; charset=utf-8"});res.end(JSON.stringify(b))};
@@ -157,6 +157,11 @@ const server=http.createServer(async(req,res)=>{
     if(m==="POST"&&p==="/api/factory/start"){const b=await readBody(req),g=typeof b.goal==="string"?b.goal.trim():"";
       if(!g||g.length>2000)return send(res,400,{error:"اكتب وصف الموقع (حتى 2000 حرف)."});return out(res,await factoryStart(g))}
     if(m==="GET"&&p==="/api/factory/state"){const run=qs.get("run")||"";if(!/^[^/\\?#&\s]{1,160}$/.test(run)||run.includes(".."))return send(res,400,{error:"معرّف مهمة غير صالح."});return out(res,await factoryState(run))}
+    const hp=p.match(/^\/api\/hands\/(browser|google|computer|confirm)$/);
+    if(hp&&m==="POST"){const b=await readBody(req);return out(res,await hands.handle(hp[1],b,String(req.headers.host||"").split(":")[1]||"8787"))}
+    if(m==="GET"&&(p==="/api/google/connect"||p==="/api/google/callback")){const r=p.endsWith("connect")?hands.gConnect(req.headers.host):await hands.gCallback(qs);
+      if(r.redirect){res.writeHead(302,{...baseHeaders,Location:r.redirect});return res.end()}
+      res.writeHead(r.code,{...baseHeaders,"Content-Type":"text/html; charset=utf-8"});return res.end('<!doctype html><meta charset="utf-8"><body dir="rtl" style="font:18px system-ui;padding:40px">'+r.html)}
     if(p==="/api/memory"){if(m==="GET")return send(res,200,{notes:readMemory()});
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
       return send(res,405,{error:"Method غير مسموح."})}

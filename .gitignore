@@ -7,3 +7,6 @@ node_modules/
 
 weblume-settings.json
 weblume-memory.json
+google-client.json
+google-token.json
+weblume-hands.json
