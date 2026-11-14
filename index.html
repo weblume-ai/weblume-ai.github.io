@@ -62,6 +62,7 @@ form:focus-within{border-color:var(--acc)}
 #msg{flex:1;border:none;outline:none;background:transparent;color:var(--ink);font:inherit;resize:none;min-height:40px;max-height:200px;padding:8px 0;overflow-y:auto}
 .page{padding:32px 24px 48px;overflow-y:auto;gap:16px;width:100%;max-width:720px;margin:0 auto}
 .ph{margin:0;font-size:24px;font-weight:700}
+.page.co{max-width:none;padding:0;height:100%;position:relative}.page.co iframe{width:100%;height:100%;border:0;display:block;background:#000}
 .page input,.page textarea{font:inherit;width:100%;padding:8px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink)}
 .page input[type=checkbox]{width:auto;accent-color:var(--acc)}
 label{font-size:14px;color:var(--mute);display:block;margin-bottom:4px}
@@ -192,6 +193,7 @@ input.sw-t:checked{background:var(--acc)}input.sw-t:checked:before{transform:tra
   <button id="t-new"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>جديد</span></button>
   <button id="t-hist"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>المحادثات</span></button>
   <button id="t-sk"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>السكيلز</span></button>
+  <button id="t-co"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M9 10h.01M15 10h.01"/></svg><span>الشركة</span></button>
   <button id="t-media"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg><span>الوسائط</span></button>
   <button id="t-set"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg><span>الإعدادات</span></button>
 </nav>
@@ -216,6 +218,9 @@ input.sw-t:checked{background:var(--acc)}input.sw-t:checked:before{transform:tra
     <div><label>كلمات التفعيل التلقائي (اختياري، regex — لو الرسالة فيها واحدة منها السكيل بيتطبق لوحده)</label><input id="k" dir="ltr" placeholder="(موقع|site)"></div>
     <div><label>التعليمات الكاملة</label><textarea id="b" rows="9"></textarea></div>
     <div class="row"><button class="pri" id="save">حفظ</button><button id="new">سكيل جديد</button><button id="del">حذف</button><button id="sk-exp">تصدير</button><button id="sk-imp">استيراد</button><input type="file" id="sk-impf" hidden accept=".json"></div>
+  </section>
+  <section id="company" class="page co">
+    <iframe id="co-frame" title="الشركة والمصنع" allow="local-network-access; clipboard-write"></iframe>
   </section>
   <section id="media" class="page">
     <h2 class="ph">الوسائط</h2>
@@ -1362,8 +1367,12 @@ function orHint(m){m=String(m||"");
 let cur=-1,history=[],busy=false,restoring=false,chatId=null;
 
 /* tabs */
-const TABS={chat:"t-chat",hist:"t-hist",skills:"t-sk",media:"t-media",settings:"t-set"};
-function tab(w){for(const k in TABS){$("#"+k).classList.toggle("on",k===w);$("#"+TABS[k]).classList.toggle("on",k===w)}if(w==="hist")renderHist()}
+const TABS={chat:"t-chat",hist:"t-hist",skills:"t-sk",company:"t-co",media:"t-media",settings:"t-set"};
+/* the Weblume company (team, 3D office, site factory, examples, design picker) is a tab of this site: its online copy,
+   which talks to the laptop's company server itself and says so when start.bat isn't running */
+const CO_URL="https://weblume-ai.github.io/weblume-company/";
+function openCompany(){const f=$("#co-frame");if(!f.getAttribute("src"))f.src=CO_URL}
+function tab(w){for(const k in TABS){$("#"+k).classList.toggle("on",k===w);$("#"+TABS[k]).classList.toggle("on",k===w)}if(w==="hist")renderHist();if(w==="company")openCompany()}
 for(const k in TABS)$("#"+TABS[k]).onclick=()=>tab(k);
 
 /* skills editor */

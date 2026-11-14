@@ -19,6 +19,9 @@ weblume/
     └── frontend.test.js            Frontend logic tests (VM, mocked fetch)
 ```
 
+## One site: Weblume AI + the company
+The rail's **الشركة** tab opens the Weblume company dashboard (team, 3D office, site factory, 🎨 design picker, 🧪 training examples, the site viewer) inside this site, from its online copy `https://weblume-ai.github.io/weblume-company/`, which talks to the laptop's company server. `start.bat` starts that server too (from `..\weblume-company`, minimised) unless it already runs, so one double-click runs everything. Chrome may ask once about **local network access**: choose Allow.
+
 ## Free design mode (default)
 Site requests are designed from scratch instead of filling the template. Each request gets an art-direction seed (16 directions, matched to the business type and never repeated in the same chat), and the model writes one complete HTML file guided by six built-in skills: design-director, layout-patterns, motion-kit, site-functionality, site-quality-gate, site-copywriting. Truncated HTML is continued automatically. Turn off "🎨 تصميم حر" in Settings, or say "قالب" in the request, to use the `build_site` template instead.
 
