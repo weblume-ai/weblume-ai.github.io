@@ -268,6 +268,7 @@ input.sw-t:checked{background:var(--acc)}input.sw-t:checked:before{transform:tra
       <div class="card-h"><div><b>التشغيل</b></div></div>
       <label class="tg"><span><b>🧠 توزيع ذكي</b><small>كل طلب يروح للموديل الشاطر فيه</small></span><input type="checkbox" class="sw-t" id="s-smart"></label>
       <label class="tg"><span><b>🔁 تبديل تلقائي</b><small>لو مصدر وقف يجرّب اللي بعده</small></span><input type="checkbox" class="sw-t" id="s-fb"></label>
+      <label class="tg"><span><b>💻 موديلات الجهاز في الشات</b><small>مقفولة: الجهاز للمصنع بس، والشات بالـ API</small></span><input type="checkbox" class="sw-t" id="s-local"></label>
       <label class="tg"><span><b>🎨 تصميم حر</b><small>يخترع تصميم جديد لكل موقع بدل القالب الجاهز</small></span><input type="checkbox" class="sw-t" id="s-free"></label>
       <label class="tg"><span><b>⬇ حفظ تلقائي</b><small>يحفظ الموقع كملف أول ما يخلص</small></span><input type="checkbox" class="sw-t" id="s-dl"></label>
       <div class="tg"><span><b>📁 فولدر الحفظ</b><small id="dirst">التنزيلات</small></span><button type="button" id="s-dir">اختار</button></div>
@@ -1351,6 +1352,9 @@ function routeModel(p,m){const c=MODEL_CACHE[p];return c&&c.length&&!c.includes(
 const PRESETS={online:{url:"https://openrouter.ai/api/v1",model:"minimax/minimax-m3.1-flash:free",fast:false},local:{url:"http://localhost:11434/v1",model:"qwen3:8b",key:"",fast:true}};
 const OR_BACKUP="openrouter/free";
 let cfg=Object.assign({url:PRESETS.local.url,model:PRESETS.local.model,key:"",fast:true,dl:true,fb:true,keys:{},pm:{}},store.get("agent_cfg_v1",{}));
+/* the laptop's models are kept for the site factory (Asser's choice): the chat moves to the first free API that has a key,
+   unless «موديلات الجهاز في الشات» is turned on in Settings */
+if(cfg.localChat!==true&&provOf(cfg)==="local"){const p=KEY_PROVS.find(x=>cfg.keys[x]);if(p)cfg=Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})}
 if(!cfg.keys||typeof cfg.keys!=="object")cfg.keys={};if(!cfg.pm||typeof cfg.pm!=="object")cfg.pm={};if(cfg.orKey&&!cfg.keys.openrouter)cfg.keys.openrouter=cfg.orKey;delete cfg.orKey;if(cfg.pm&&cfg.pm.groq==="llama-3.3-70b-versatile")delete cfg.pm.groq;if(cfg.pm&&cfg.pm.nvidia==="nvidia/nemotron-3-super-120b-a12b")delete cfg.pm.nvidia;if(cfg.model==="nvidia/nemotron-3-super-120b-a12b")cfg.model="nvidia/nemotron-3.5-super-vl-120b-a12b";if(cfg.model==="llama-3.3-70b-versatile"&&/groq\.com/.test(cfg.url||""))cfg.model="openai/gpt-oss-120b";
 {const pv_=provOf(cfg);if(NEEDS_SERVER.has(pv_))cfg.url=PROVIDERS[pv_].url}
 if(!cfg.mm31){cfg.mm31=1;const N_="nvidia/nemotron-3.5-super-vl:free",M_="minimax/minimax-m3.1-flash:free";if(cfg.model===N_&&/openrouter\.ai/.test(cfg.url||"")){cfg.model=M_}if(cfg.pm&&cfg.pm.openrouter===N_)cfg.pm.openrouter=M_;try{localStorage.setItem("agent_cfg_v1",JSON.stringify(cfg))}catch(e){}}
@@ -1406,7 +1410,7 @@ $("#sk-impf").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(
 };
 
 /* settings */
-function fillCfg(){$("#s-url").value=cfg.url;$("#s-model").value=cfg.model;$("#s-key").value=cfg.key;$("#s-fast").checked=!!cfg.fast;$("#s-dl").checked=!!cfg.dl;$("#s-fb").checked=cfg.fb!==false;KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)el.value=cfg.keys[p]||""});$("#s-smart").checked=!!cfg.smart;$("#s-free").checked=!cfg.tpl;markPreset()}
+function fillCfg(){$("#s-url").value=cfg.url;$("#s-model").value=cfg.model;$("#s-key").value=cfg.key;$("#s-fast").checked=!!cfg.fast;$("#s-dl").checked=!!cfg.dl;$("#s-fb").checked=cfg.fb!==false;$("#s-local").checked=cfg.localChat===true;KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)el.value=cfg.keys[p]||""});$("#s-smart").checked=!!cfg.smart;$("#s-free").checked=!cfg.tpl;markPreset()}
 function markPreset(){const c=provOf(cfg);PROV_ORDER.forEach(p=>{const b=document.getElementById("pv-"+p);if(b)b.classList.toggle("on",c===p);const st=document.getElementById("st-"+p);if(st&&!st.dataset.t){const has=p==="local"||!!cfg.keys[p];st.className="pv-st "+(c===p?"ok":has?"":"need");st.textContent=c===p?"شغال دلوقتي":p==="local"?"":has?"جاهز":"محتاج مفتاح"}})}
 async function testOne(p){const st=document.getElementById("st-"+p);const P=PROVIDERS[p],k=p==="local"?"":cfg.keys[p];if(p!=="local"&&!k)return;st.dataset.t="1";if(NEEDS_SERVER.has(p)&&!SRV){st.className="pv-st bad";st.textContent="❌ شغّل start.bat ←";st.title="شغّل start.bat على جهازك، وبعدين دوس هنا";st.style.cursor="pointer";st.onclick=()=>{if(location.protocol==="file:")openOnServer();else detectServer(true)};return}st.className="pv-st";st.textContent="… بيختبر";
   const done=(ok,t)=>{st.className="pv-st "+(ok?"ok":"bad");st.textContent=t;st.title=t};
@@ -1431,7 +1435,7 @@ function openOnServer(){location.href=SERVER_URL+"#wlcfg="+encodeURIComponent(ex
 if(VIA_SERVER&&location.hash.startsWith("#wlcfg=")){const t=decodeURIComponent(location.hash.slice(7));window.history.replaceState(null,"",location.pathname);if(importCfg(t)){setTimeout(()=>{tab("settings");$("#s-testall").click()},300)}}
 if(!VIA_SERVER&&location.protocol==="file:"){fetch(SERVER_URL+"api/health",{mode:"no-cors",cache:"no-store"}).then(()=>{const b=document.createElement("button");b.type="button";b.id="srv-go";b.className="srv-go";b.textContent="🟢 السيرفر شغال · افتح Weblume منه (مفاتيحك هتتنقل لوحدها)";b.onclick=openOnServer;document.querySelector("main").prepend(b)}).catch(()=>{})}
 $("#s-testall").onclick=async()=>{const b=$("#s-testall");b.disabled=true;b.textContent="بيختبر…";await Promise.all(PROV_ORDER.map(testOne));b.disabled=false;b.textContent="اختبر الكل"};
-function readCfg(){const keys=Object.assign({},cfg.keys);KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)keys[p]=el.value.trim()});const url=$("#s-url").value.trim(),model=$("#s-model").value.trim();let key=$("#s-key").value.trim();const pv=provOf({url});if(pv&&pv!=="local"&&!key&&keys[pv])key=keys[pv];const pm=Object.assign({},cfg.pm);if(pv&&model)pm[pv]=model;cfg={url,model,key,fast:$("#s-fast").checked,dl:$("#s-dl").checked,fb:$("#s-fb").checked,smart:$("#s-smart").checked,tpl:!$("#s-free").checked,keys,pm,mm31:1,kt:cfg.kt||0}}
+function readCfg(){const keys=Object.assign({},cfg.keys);KEY_PROVS.forEach(p=>{const el=document.getElementById("k-"+p);if(el)keys[p]=el.value.trim()});const url=$("#s-url").value.trim(),model=$("#s-model").value.trim();let key=$("#s-key").value.trim();const pv=provOf({url});if(pv&&pv!=="local"&&!key&&keys[pv])key=keys[pv];const pm=Object.assign({},cfg.pm);if(pv&&model)pm[pv]=model;cfg={url,model,key,fast:$("#s-fast").checked,dl:$("#s-dl").checked,fb:$("#s-fb").checked,localChat:$("#s-local").checked,smart:$("#s-smart").checked,tpl:!$("#s-free").checked,keys,pm,mm31:1,kt:cfg.kt||0}}
 function applyProvider(p,model){readCfg();const P=PROVIDERS[p];cfg=Object.assign({},cfg,{url:P.url,model:model||cfg.pm[p]||P.model,key:p==="local"?"":(cfg.keys[p]||""),fast:p==="local"});fillCfg();store.set("agent_cfg_v1",cfg);saveServer();setModel();const st=$("#status");st.style.whiteSpace="pre-wrap";
   st.textContent=p!=="local"&&!cfg.keys[p]?"⚠️ اتحوّل على "+P.label+"، بس لازم تحط مفتاح "+P.label+" في الخانة بتاعته.":"✅ اتحوّل على "+P.label+" ("+cfg.model+").";checkModel()}
 PROV_ORDER.forEach(p=>{const b=document.getElementById("p-"+p);if(b)b.onclick=()=>applyProvider(p)});
@@ -1512,7 +1516,7 @@ $("#s-save").onclick=()=>{persist();$("#status").textContent="✅ اتحفظ."};
 let ssT=0;function saveServer(){pushCloudSoon();if(!SRV)return;clearTimeout(ssT);ssT=setTimeout(()=>{fetch(SRV_BASE+"/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kt:cfg.kt||0,keys:cfg.keys,pm:cfg.pm,smart:!!cfg.smart,fb:cfg.fb!==false,dl:cfg.dl!==false,url:cfg.url,model:cfg.model})}).catch(()=>{})},400)}
 function persist(){readCfg();store.set("agent_cfg_v1",cfg);setModel();markPreset();saveServer()}
 ["#s-url","#s-model","#s-key"].forEach(i=>$(i).addEventListener("input",persist));
-["#s-fast","#s-dl","#s-fb","#s-smart","#s-free"].forEach(i=>$(i).addEventListener("change",persist));
+["#s-fast","#s-dl","#s-fb","#s-smart","#s-free","#s-local"].forEach(i=>$(i).addEventListener("change",persist));
 function fillModels(names){const dl=$("#mlist");dl.textContent="";names.forEach(n=>{const o=document.createElement("option");o.value=n;dl.appendChild(o)})}
 async function checkModel(){try{const h={};if(cfg.key)h.Authorization="Bearer "+cfg.key;const r=await fetch(cfg.url.replace(/\/+$/,"")+"/models",{headers:h});if(!r.ok)return;const j=await r.json();const names=(j.data||[]).map(m=>String(m.id).replace(/^models\//,""));fillModels(names);if(names.length&&!names.includes(cfg.model)){$("#mdl").textContent=cfg.model+" · ⚠️ مش موجود";const st=$("#status");st.style.whiteSpace="pre-wrap";st.textContent="⚠️ الموديل «"+cfg.model+"» مش موجود على السيرفر.\nالموجود: "+names.join("، ")}}catch(e){}}
 $("#s-test").onclick=async()=>{
@@ -1770,9 +1774,9 @@ async function send(){
   let chain=[cfg];const cur=provOf(cfg);
   const task=cfg.smart?classifyTask(text):"";const routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];
   if(routed.length){wk.step("📍 توزيع ذكي: الطلب ده «"+ROUTES[task].label+"» ← "+pLabel(routed[0]));chain=routed.slice()}
-  if(routed.length){if(cfg.fb!==false){KEY_PROVS.filter(p=>usable(p)&&!chain.some(c=>provOf(c)===p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
+  if(routed.length){if(cfg.fb!==false){KEY_PROVS.filter(p=>usable(p)&&!chain.some(c=>provOf(c)===p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));if(cfg.localChat===true)chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
   else{if(isOR(cfg)&&cfg.model!==OR_BACKUP)chain.push(Object.assign({},cfg,{model:OR_BACKUP,fast:false}));
-  if(cfg.fb!==false&&cur!=="local"){PROV_ORDER.filter(p=>p!==cur&&p!=="local"&&usable(p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
+  if(cfg.fb!==false&&cur!=="local"){PROV_ORDER.filter(p=>p!==cur&&p!=="local"&&usable(p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));if(cfg.localChat===true)chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
   try{
     for(let i=0;i<chain.length;i++){
       try{await runAgent(chain[i],skills,history,onEv,ctrl.signal);break}
@@ -1856,7 +1860,7 @@ function buildSw(){const m=$("#sw-menu");m.textContent="";const cur=provOf(cfg);
   sm_.innerHTML='<span class="sw-ic">🧠</span><span class="sw-tx"><b>توزيع ذكي</b><small>كل طلب للموديل الشاطر فيه ('+n_+' مصادر ليها مفتاح)</small></span><span class="sw-st '+(cfg.smart?"ok":"")+'">'+(cfg.smart?"شغال":"مقفول")+'</span>';
   sm_.onclick=()=>{$("#s-smart").checked=!cfg.smart;persist();buildSw()};m.appendChild(sm_);
   const hd=document.createElement("div");hd.className="sw-h";hd.textContent=cfg.smart?"المصدر الاحتياطي لو التوزيع مش لاقي حاجة":"بدّل المصدر (كلهم مجانيين)";m.appendChild(hd);
-  PROV_ORDER.forEach(p=>{const P=PROVIDERS[p],has=p==="local"||!!cfg.keys[p],on=cur===p,srv=NEEDS_SERVER.has(p)&&!SRV;
+  PROV_ORDER.filter(p=>p!=="local"||cfg.localChat===true||cur==="local").forEach(p=>{const P=PROVIDERS[p],has=p==="local"||!!cfg.keys[p],on=cur===p,srv=NEEDS_SERVER.has(p)&&!SRV;
     const b=document.createElement("button");b.type="button";b.className="sw-item"+(on?" on":"");
     const ic=document.createElement("span");ic.className="sw-ic";ic.textContent=P.ic;
     const tx=document.createElement("span");tx.className="sw-tx";const bb=document.createElement("b");bb.textContent=P.label;const sm=document.createElement("small");sm.textContent=on?String(cfg.model):P.note;tx.append(bb,sm);
