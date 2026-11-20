@@ -96,7 +96,7 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"GET","/");T("serves index.html",r.s===200&&/<html/.test(r.t));
   // frontend <-> backend contract
   const html=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
-  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings|search|factory\/(start|state)|memory|hands\/)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
+  T("frontend calls only routes the backend implements",["/api/health","/api/images","/api/video/jobs"].every(x=>html.includes('"'+x))&&!/\/api\/(?!health|images|video\/jobs|items|llm\/|settings|search|factory\/(start|state)|memory|deploy|hands\/)/.test(html.replace(/\/api\/items/g,"").replace(/https:\/\/[\w.-]+\/api\/v1/g,"")));
   T("frontend polls with fields backend returns (status/url/error/id)",/j\.status==="succeeded"/.test(html)&&/j\.url/.test(html)&&/j\.error/.test(html)&&/vid=j\.id/.test(html)&&/j\.status==="canceled"/.test(html));
   // LLM relay (providers that block browser CORS), against a LOCAL MOCK upstream
   E.LLM_NVIDIA_BASE="http://127.0.0.1:"+mp+"/nv";
@@ -167,6 +167,17 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   r=await call(p,"DELETE","/api/memory",{texts:["ملاحظة قديمة مش مهمة","مش موجودة"]},L);
   T("memory: forget removes exactly the listed notes",r.s===200&&r.j.removed===1&&r.j.left===1&&(await call(p,"GET","/api/memory",null,L)).j.notes[0].text==="عميل: كافيه نور، عايز موقع بمنيو");
   T("memory: forget needs a list of texts",(await call(p,"DELETE","/api/memory",{texts:"all"},L)).s===400&&(await call(p,"DELETE","/api/memory",{},L)).s===400);
+  const D=require("../server/deploy.js"),os=require("os"),pth=require("path");
+  const src=fs.mkdtempSync(pth.join(os.tmpdir(),"dep-")),dst=fs.mkdtempSync(pth.join(os.tmpdir(),"out-"));
+  for(const f of ["index.html","style.css","img.webp",".env","secret-key.txt","weblume-settings.json"])fs.writeFileSync(pth.join(src,f),"x");
+  fs.mkdirSync(pth.join(src,"node_modules"));fs.writeFileSync(pth.join(src,"node_modules","a.js"),"x");
+  D.copyWeb(src,dst);const up=fs.readdirSync(dst).sort().join(",");
+  T("deploy: only web files are uploaded, never .env, keys, settings or node_modules",up==="img.webp,index.html,style.css");
+  delete E.CLOUDFLARE_API_TOKEN;T("deploy: without the Cloudflare key -> 503",(await call(p,"POST","/api/deploy",{site:"x",project:"abc"},L)).s===503);
+  E.CLOUDFLARE_API_TOKEN="t";E.CLOUDFLARE_ACCOUNT_ID="a";
+  T("deploy: bad project name / missing site refused",(await call(p,"POST","/api/deploy",{site:"x",project:"Bad Name!"},L)).s===400&&(await call(p,"POST","/api/deploy",{site:"no-such-site-xyz",project:"abc"},L)).s===404);
+  T("deploy: a folder outside Projects is refused",D.resolveDir("../../Windows")===null);
+  delete E.CLOUDFLARE_API_TOKEN;delete E.CLOUDFLARE_ACCOUNT_ID;
   T("memory: too long / not text -> 400",(await call(p,"POST","/api/memory",{text:"x".repeat(501)},L)).s===400&&(await call(p,"POST","/api/memory",{text:5},L)).s===400);
   T("memory: foreign Host / foreign Origin rejected",(await call(p,"GET","/api/memory",null,{h:{Host:"evil.example"}})).s===403&&(await call(p,"POST","/api/memory",{text:"x"},{h:{Host:"127.0.0.1:"+p,Origin:"https://evil.example"}})).s===403);
   try{fs.unlinkSync(MF)}catch(e){}

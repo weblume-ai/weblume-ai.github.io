@@ -55,10 +55,10 @@ function cleanSettings(b){const o={};const str=(v,n)=>typeof v==="string"?v.trim
   for(const k of["url","model"]){const v=str(b[k],300);if(v!==undefined)o[k]=v}
   return o}
 // Your own hosted copy (GitHub Pages) may talk to this local server. Nothing else may.
-const ALLOWED_ORIGINS=new Set(["https://weblume-ai.github.io",...String(process.env.WEBLUME_ALLOWED_ORIGINS||"").split(",").map(x=>x.trim()).filter(x=>/^https:\/\/[\w.-]+$/.test(x))]);
+const ALLOWED_ORIGINS=new Set(["https://weblume-ai.github.io","https://phainora-ai.pages.dev",...String(process.env.WEBLUME_ALLOWED_ORIGINS||"").split(",").map(x=>x.trim()).filter(x=>/^https:\/\/[\w.-]+$/.test(x))]);
 function corsFor(req,res){const o=req.headers.origin;if(!o||!ALLOWED_ORIGINS.has(o))return false;
   res.setHeader("Access-Control-Allow-Origin",o);res.setHeader("Vary","Origin");res.setHeader("Access-Control-Allow-Headers","Authorization, Content-Type");
-  res.setHeader("Access-Control-Allow-Methods","GET, POST, OPTIONS");res.setHeader("Access-Control-Allow-Private-Network","true");res.setHeader("Access-Control-Max-Age","600");return true}
+  res.setHeader("Access-Control-Allow-Methods","GET, POST, DELETE, OPTIONS");res.setHeader("Access-Control-Allow-Private-Network","true");res.setHeader("Access-Control-Max-Age","600");return true}
 const prompt=b=>typeof b.prompt==="string"&&b.prompt.trim()&&b.prompt.length<=4000?b.prompt.trim():null;
 function state(){const v=video.config();return{
   image:images.configured(),video:v.configured,videoCancel:v.configured,
@@ -167,6 +167,7 @@ const server=http.createServer(async(req,res)=>{
     if(m==="GET"&&(p==="/api/google/connect"||p==="/api/google/callback")){const r=p.endsWith("connect")?hands.gConnect(req.headers.host):await hands.gCallback(qs);
       if(r.redirect){res.writeHead(302,{...baseHeaders,Location:r.redirect});return res.end()}
       res.writeHead(r.code,{...baseHeaders,"Content-Type":"text/html; charset=utf-8"});return res.end('<!doctype html><meta charset="utf-8"><body dir="rtl" style="font:18px system-ui;padding:40px">'+r.html)}
+    if(m==="POST"&&p==="/api/deploy"){const b=await readBody(req);return out(res,await deploy.deploy(b.site,String(b.project||"").trim().toLowerCase()))}
     if(p==="/api/memory"){if(m==="GET")return send(res,200,{notes:readMemory()});
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
@@ -174,6 +175,7 @@ const server=http.createServer(async(req,res)=>{
     send(res,404,{error:"مش موجود."});
   }catch(e){send(res,e.code&&e.code>=400&&e.code<500?e.code:500,{error:e.code?e.message:"خطأ داخلي في السيرفر."})}
 });
+const deploy=require("./deploy.js");
 module.exports={server,state};
 if(require.main===module){
   const port=+process.env.PORT||8787,host=process.env.HOST||"127.0.0.1";
