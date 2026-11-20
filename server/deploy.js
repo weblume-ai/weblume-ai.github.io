@@ -1,5 +1,5 @@
 // Publish a folder of this laptop to Cloudflare Pages (free, link <project>.pages.dev) with wrangler, Cloudflare's own
-// tool. Only web files are copied to a temporary folder first, so a .env, keys, settings or memory are never uploaded.
+// tool (--force: the classic Pages with a pages.dev link; wrangler 4.15x otherwise moves it to Workers). Only web files are copied to a temporary folder first, so a .env, keys, settings or memory are never uploaded.
 // The key comes from .env (CLOUDFLARE_API_TOKEN with "Cloudflare Pages: Edit", CLOUDFLARE_ACCOUNT_ID); the chat asks the
 // owner before every publish.
 //   node server/deploy.js self   -> publishes Phainora AI itself (index.html) as phainora-ai.pages.dev
@@ -44,8 +44,8 @@ async function deploy(dir, project) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pages-"));
   try {
     const files = copyWeb(src, tmp);
-    await wrangler(["pages", "project", "create", project, "--production-branch", "main"]);  // fails harmlessly when it exists
-    const r = await wrangler(["pages", "deploy", tmp, "--project-name", project, "--branch", "main", "--commit-dirty=true"]);
+    await wrangler(["pages", "project", "create", project, "--production-branch", "main", "--force"]);  // fails harmlessly when it exists
+    const r = await wrangler(["pages", "deploy", tmp, "--project-name", project, "--branch", "main", "--commit-dirty=true", "--force"]);
     const url = (r.text.match(/https:\/\/[\w.-]+\.pages\.dev/g) || []).pop();
     if (r.err || !url) return { code: 502, body: { error: "Cloudflare رفض الرفع: " + r.text.replace(/\x1b\[[0-9;]*m/g, "").trim().split("\n").slice(-4).join(" ").slice(0, 300) } };
     return { code: 200, body: { url: "https://" + project + ".pages.dev", preview: url, files } };
