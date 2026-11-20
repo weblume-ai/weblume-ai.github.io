@@ -47,6 +47,14 @@ const gmock=http.createServer((q,r)=>{let b="";q.on("data",d=>b+=d);q.on("end",(
   if(u.startsWith("/www.googleapis.com/drive/v3/files?"))return j(200,{files:[{id:"f1",name:"Leads",mimeType:"application/vnd.google-apps.spreadsheet",webViewLink:"https://docs.google.com/x"}]});
   if(u.startsWith("/sheets.googleapis.com/v4/spreadsheets/SHEET1234567890abcdefgh?fields"))return j(200,{properties:{title:"Leads tracker"}});
   if(u.startsWith("/sheets.googleapis.com/v4/spreadsheets/SHEET1234567890abcdefgh/values/"))return q.method==="GET"?j(200,{values:[["name","city"],["Noor","Jeddah"]]}):j(200,{updates:{updatedRows:1}});
+  // Firebase setup: every create returns a finished operation
+  if(u==="/gmail.googleapis.com/gmail/v1/users/me/profile")return j(200,{emailAddress:"owner@example.com"});
+  if(q.method==="POST"&&/^\/(cloudresourcemanager|firebase|serviceusage|firestore)\.googleapis\.com\//.test(u)&&!/webApps\/[^/]+\/config/.test(u))
+    return j(200,{name:"operations/op1",done:true,response:{appId:"1:23:web:45"}});
+  if(u.startsWith("/firebaserules.googleapis.com/v1/projects/")&&u.endsWith("/rulesets"))return j(200,{name:"projects/p/rulesets/r1"});
+  if(u.startsWith("/firebaserules.googleapis.com/"))return j(200,{});
+  if(u.startsWith("/identitytoolkit.googleapis.com/"))return j(200,{});
+  if(/\/webApps\/1:23:web:45\/config$/.test(u))return j(200,{apiKey:"AIzaFAKEpublicwebkey",authDomain:"x.firebaseapp.com",projectId:"x",storageBucket:"x.appspot.com",messagingSenderId:"23",appId:"1:23:web:45"});
   j(404,{error:{message:"nope"}})})});
 
 let port;const H=()=>({Host:"127.0.0.1:"+port});
@@ -120,6 +128,14 @@ const hand=(k,b)=>call("POST","/api/hands/"+k,b);
   r=await hand("confirm",{id:r.j.confirm.id});const ap=G.find(x=>x.m==="POST");
   T("sheet_append: after yes, rows appended as RAW (no formulas)",r.s===200&&/valueInputOption=RAW/.test(ap.u)&&JSON.parse(ap.b).values[0][0]==="Bean Bar");
   T("sheet_append: secrets refused",(await hand("google",{action:"sheet_append",sheet:"SHEET1234567890abcdefgh",rows:[["password hunter2"]]})).s===403);
+  G.length=0;r=await hand("google",{action:"firebase_setup",name:"Noor Cafe"});
+  T("firebase_setup: asks first, names the project and the owner, creates nothing yet",r.s===200&&r.j.confirm&&/noor-cafe-[0-9a-f]{6}/.test(r.j.confirm.text)&&/owner@example\.com/.test(r.j.confirm.text)&&!G.some(x=>x.m==="POST"));
+  r=await hand("confirm",{id:r.j.confirm.id});
+  const fdb=G.find(x=>x.u.includes("/databases?databaseId=")),frs=G.find(x=>x.u.endsWith("/rulesets"));
+  T("firebase_setup: after yes, Firestore + rules (owner only, email verified) + config back",r.s===200&&/firebaseConfig/.test(r.j.result)&&/1:23:web:45/.test(r.j.result)
+    &&JSON.parse(fdb.b).type==="FIRESTORE_NATIVE"&&/owner@example\.com/.test(frs.b)&&/email_verified == true/.test(JSON.parse(frs.b).source.files[0].content)
+    &&/allow read: if col != \\"orders\\"/.test(frs.b));
+  T("firebase_setup: a bad owner email is refused",(await hand("google",{action:"firebase_setup",name:"x",owner_email:"not-an-email"})).s===400);
   fs.writeFileSync(E.WEBLUME_GOOGLE_TOKEN,JSON.stringify({refresh_token:"1//revoked123456",access_token:"",expiry:0}));
   r=await hand("google",{action:"calendar_list"});T("google: revoked token -> connect link again, token file removed",r.s===401&&/connect/.test(r.j.error)&&!fs.existsSync(E.WEBLUME_GOOGLE_TOKEN));
 

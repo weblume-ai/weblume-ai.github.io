@@ -110,7 +110,8 @@ async function browser(b){const a=str(b.action,30);
 // ---- Google (Asser's own Desktop OAuth client; tokens in a git-ignored file next to the repo, never sent to the browser)
 const G_CLIENT=()=>process.env.WEBLUME_GOOGLE_CLIENT||path.join(ROOT,"google-client.json");
 const G_TOKEN=()=>process.env.WEBLUME_GOOGLE_TOKEN||path.join(ROOT,"google-token.json");
-const G_SCOPES=["gmail.readonly","gmail.compose","calendar.events","drive.readonly","spreadsheets"].map(s=>"https://www.googleapis.com/auth/"+s);
+// cloud-platform + firebase: firebase_setup makes a project, database and sign-in for a client site (after the owner approves)
+const G_SCOPES=["gmail.readonly","gmail.compose","calendar.events","drive.readonly","spreadsheets","cloud-platform","firebase"].map(s=>"https://www.googleapis.com/auth/"+s);
 const gurl=(host,p)=>process.env.GOOGLE_API_BASE?process.env.GOOGLE_API_BASE+"/"+host+p:"https://"+host+p; // base override is for tests only
 const b64u=b=>Buffer.from(b).toString("base64").replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 function gClient(){try{const j=JSON.parse(fs.readFileSync(G_CLIENT(),"utf8"));const c=j.installed||j.web||j;return c.client_id&&c.client_secret?c:null}catch(e){return null}}
@@ -131,7 +132,7 @@ async function gCallback(qs){const f=flows.get(qs.get("state")||"");flows.delete
   if(qs.get("error"))return{code:400,html:"<p>جوجل رجّع: "+String(qs.get("error")).replace(/[<>&"]/g,"")+"</p>"};
   const c=gClient();const r=await tokenCall({code:qs.get("code")||"",client_id:c.client_id,client_secret:c.client_secret,redirect_uri:f.redirect,grant_type:"authorization_code",code_verifier:f.verifier});
   if(!r.ok||!r.j.refresh_token)return{code:502,html:"<p>جوجل مارضيش يدي توكن. جرّب تاني.</p>"};
-  saveToken({refresh_token:r.j.refresh_token,access_token:r.j.access_token,expiry:Date.now()+(r.j.expires_in||3600)*1000});
+  saveToken({refresh_token:r.j.refresh_token,access_token:r.j.access_token,scope:r.j.scope||"",expiry:Date.now()+(r.j.expires_in||3600)*1000});
   return{code:200,html:"<p>✅ جوجل اتوصل بـ Weblume AI. اقفل الصفحة دي وارجع للشات.</p>"}}
 async function accessToken(port){const t=gToken(),c=gClient();if(!t||!t.refresh_token||!c)throw Object.assign(new Error(c?CONNECT_HINT(port):"مفيش google-client.json. اتبع خطوات README (Google services)."),{code:401});
   if(t.access_token&&t.expiry>Date.now()+60000)return t.access_token;
@@ -150,7 +151,52 @@ function mailText(part){if(!part)return"";if(part.mimeType==="text/plain"&&part.
   for(const x of part.parts||[]){const t=mailText(x);if(t)return t}
   if(part.mimeType==="text/html"&&part.body&&part.body.data)return unb64(part.body.data).replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi,"").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/\s+/g," ");return""}
 const mimeWord=s=>/^[\x20-\x7e]*$/.test(s)?s:"=?UTF-8?B?"+Buffer.from(s).toString("base64")+"?=";
+// ---- Firebase: a new free (Spark) project for a client site: Firestore database, email sign-in, safe rules, web config.
+// One approval runs every step; each Google long-running operation is polled until it finishes.
+const FB_RULES=owner=>`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // only the site owner, after confirming their email, can change content or read orders
+    function isOwner() { return request.auth != null && request.auth.token.email == "${owner}" && request.auth.token.email_verified == true; }
+    match /orders/{id} {
+      allow create: if request.resource.data.keys().hasOnly(["items","total","name","phone","note","status","created"]) && request.resource.data.status == "new";
+      allow read, update, delete: if isOwner();
+    }
+    match /{col}/{id} {
+      allow read: if col != "orders";
+      allow write: if isOwner();
+    }
+  }
+}`;
+async function gop(g,host,ver,op,ms){const t=Date.now();let o=op;  // wait for a Google operation
+  while(o&&o.name&&!o.done){if(Date.now()-t>(ms||120000))throw Object.assign(new Error("جوجل اتأخر في إنشاء المشروع. جرّب تاني بعد شوية."),{code:504});
+    await new Promise(r=>setTimeout(r,2500));o=await g("GET",host,"/"+ver+"/"+o.name)}
+  if(o&&o.error)throw Object.assign(new Error("جوجل رفض: "+String(o.error.message||"").slice(0,200)),{code:502});return o}
+async function firebaseSetup(b,port,g){
+  const tok=gToken()||{};if(tok.scope&&!/cloud-platform/.test(tok.scope))return bad(401,"جوجل متوصل من غير صلاحية Firebase. افتح http://127.0.0.1:"+port+"/api/google/connect تاني ووافق على الصلاحيات الجديدة.");
+  const name=str(b.name,40)||"site",slug=(name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"site").slice(0,20);
+  const id=(/^[a-z]/.test(slug)?slug:"site-"+slug).replace(/-+$/,"")+"-"+crypto.randomBytes(3).toString("hex");
+  let owner=str(b.owner_email,120);
+  if(!owner){try{owner=(await g("GET","gmail.googleapis.com","/gmail/v1/users/me/profile")).emailAddress||""}catch(e){}}
+  if(!/^[^@\s"]+@[^@\s"]+\.[^@\s"]+$/.test(owner))return bad(400,"محتاج إيميل صاحب الموقع (owner_email) عشان هو بس اللي يعدّل.");
+  return ask("أعمل مشروع Firebase مجاني «"+id+"» في حساب جوجل بتاعك (داتابيز + تسجيل دخول بالإيميل)، وصاحب التعديل "+owner+"؟",async()=>{
+    const steps=[];
+    await gop(g,"cloudresourcemanager.googleapis.com","v1",await g("POST","cloudresourcemanager.googleapis.com","/v1/projects",{projectId:id,name:name.slice(0,30)}));steps.push("المشروع");
+    await gop(g,"firebase.googleapis.com","v1beta1",await g("POST","firebase.googleapis.com","/v1beta1/projects/"+id+":addFirebase",{}),180000);steps.push("Firebase");
+    await gop(g,"serviceusage.googleapis.com","v1",await g("POST","serviceusage.googleapis.com","/v1/projects/"+id+"/services:batchEnable",{serviceIds:["firestore.googleapis.com","identitytoolkit.googleapis.com","firebaserules.googleapis.com"]}),180000);
+    await gop(g,"firestore.googleapis.com","v1",await g("POST","firestore.googleapis.com","/v1/projects/"+id+"/databases?databaseId=(default)",{type:"FIRESTORE_NATIVE",locationId:"eur3"}),180000);steps.push("الداتابيز");
+    const rs=await g("POST","firebaserules.googleapis.com","/v1/projects/"+id+"/rulesets",{source:{files:[{name:"firestore.rules",content:FB_RULES(owner)}]}});
+    await g("POST","firebaserules.googleapis.com","/v1/projects/"+id+"/releases",{name:"projects/"+id+"/releases/cloud.firestore",rulesetName:rs.name});steps.push("قواعد الأمان");
+    let auth="✅";try{await g("POST","identitytoolkit.googleapis.com","/v2/projects/"+id+"/identityPlatform:initializeAuth",{});
+      await g("PATCH","identitytoolkit.googleapis.com","/admin/v2/projects/"+id+"/config?updateMask=signIn.email.enabled,signIn.email.passwordRequired",{signIn:{email:{enabled:true,passwordRequired:true}}});steps.push("تسجيل الدخول")}
+    catch(e){auth="⚠️ فعّل Email/Password بنفسك (ضغطة واحدة): https://console.firebase.google.com/project/"+id+"/authentication/providers"}
+    const app=await gop(g,"firebase.googleapis.com","v1beta1",await g("POST","firebase.googleapis.com","/v1beta1/projects/"+id+"/webApps",{displayName:name.slice(0,40)}));
+    const appId=app.response&&app.response.appId;const cfg=await g("GET","firebase.googleapis.com","/v1beta1/projects/"+id+"/webApps/"+appId+"/config");
+    const config={apiKey:cfg.apiKey,authDomain:cfg.authDomain,projectId:cfg.projectId,storageBucket:cfg.storageBucket,messagingSenderId:cfg.messagingSenderId,appId:cfg.appId};
+    return ok("🔥 Firebase جاهز: "+steps.join(" · "),"✅ اتعمل مشروع Firebase «"+id+"». تسجيل الدخول: "+auth+"\nصاحب التعديل: "+owner+" (لازم يأكد إيميله أول مرة).\n"+
+      "حط الـ config ده في index.html وadmin.html (مش سر، مسموح يبقى في الموقع):\nconst firebaseConfig = "+JSON.stringify(config,null,1)+";\nلوحة Firebase: https://console.firebase.google.com/project/"+id)})}
 async function google(b,port){const a=str(b.action,30);const g=(m,h,p,body)=>gapi(port,m,h,p,body);
+  if(a==="firebase_setup")return await firebaseSetup(b,port,g);
   if(a==="status"){const c=!!gClient(),t=!!(gToken()||{}).refresh_token;return ok("🔗 حالة جوجل",c&&t?"✅ جوجل متوصل.":c?CONNECT_HINT(port):"مفيش google-client.json. اتبع README.")}
   if(a==="gmail_search"){const q=str(b.query,300),max=Math.min(Math.max(+b.max||10,1),20);
     const l=await g("GET","gmail.googleapis.com","/gmail/v1/users/me/messages?maxResults="+max+"&q="+encodeURIComponent(q));
@@ -185,7 +231,7 @@ async function google(b,port){const a=str(b.action,30);const g=(m,h,p,body)=>gap
     return ask("أضيف "+rows.length+" صف في شيت «"+(meta.properties&&meta.properties.title||id)+"»؟ أول صف: "+rows[0].join(" | ").slice(0,150),async()=>{
       await g("POST","sheets.googleapis.com",base+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{values:rows});
       return ok("📊 ضفت "+rows.length+" صف في الشيت","✅ اتضافوا.")})}
-  return bad(400,"action لازم: status, gmail_search, gmail_read, gmail_draft, calendar_list, calendar_add, drive_search, sheet_read, sheet_append.")}
+  return bad(400,"action لازم: status, gmail_search, gmail_read, gmail_draft, calendar_list, calendar_add, drive_search, sheet_read, sheet_append, firebase_setup.")}
 
 // ---- computer: open a folder/file/app, run a named command from the whitelist, read a text file
 const HANDS_FILE=()=>process.env.WEBLUME_HANDS_FILE||path.join(ROOT,"weblume-hands.json");
