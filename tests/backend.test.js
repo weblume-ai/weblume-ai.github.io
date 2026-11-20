@@ -27,7 +27,7 @@ const mock=http.createServer((q,r)=>{let b="";q.on("data",d=>b+=d);q.on("end",()
   if(u==="/rep/predictions/"+ID)return j(200,mode.pred||{id:ID,status:"processing"});
   j(404,{detail:"not found"})})});
 const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefined?o.raw:(body?JSON.stringify(body):undefined);
-  const q=http.request({port,method,path:p,headers:{"Content-Type":o.ct||"application/json",...(o.h||{})}},r=>{let t="";r.on("data",x=>t+=x);r.on("end",()=>{let j=null;try{j=JSON.parse(t)}catch(e){}res({s:r.statusCode,j,t,h:r.headers})})});
+  const q=http.request({port,method,path:p,headers:{"Content-Type":o.ct||"application/json",...(d!==undefined?{"Content-Length":Buffer.byteLength(d)}:{}),...(o.h||{})}},r=>{let t="";r.on("data",x=>t+=x);r.on("end",()=>{let j=null;try{j=JSON.parse(t)}catch(e){}res({s:r.statusCode,j,t,h:r.headers})})});
   q.on("error",()=>res({s:0,t:""}));q.end(d)});
 (async()=>{
   await new Promise(r=>mock.listen(0,r));const mp=mock.address().port;
@@ -163,6 +163,10 @@ const call=(port,method,p,body,o={})=>new Promise(res=>{const d=o.raw!==undefine
   const bad=["مفتاح جروك gsk_abcdefgh12345678","AIzaSyA1234567890abcdefghijklmnop","the password is hunter2","كلمة السر 1234","card 4111 1111 1111 1111","abcdefABCDEF0123456789abcdefABCDEF01"];
   let refused=0;for(const t of bad){const x=await call(p,"POST","/api/memory",{text:t},L);if(x.s===400)refused++}
   T("memory: keys, passwords and card numbers refused",refused===bad.length&&(await call(p,"GET","/api/memory",null,L)).j.notes.length===1);
+  await call(p,"POST","/api/memory",{text:"ملاحظة قديمة مش مهمة"},L);
+  r=await call(p,"DELETE","/api/memory",{texts:["ملاحظة قديمة مش مهمة","مش موجودة"]},L);
+  T("memory: forget removes exactly the listed notes",r.s===200&&r.j.removed===1&&r.j.left===1&&(await call(p,"GET","/api/memory",null,L)).j.notes[0].text==="عميل: كافيه نور، عايز موقع بمنيو");
+  T("memory: forget needs a list of texts",(await call(p,"DELETE","/api/memory",{texts:"all"},L)).s===400&&(await call(p,"DELETE","/api/memory",{},L)).s===400);
   T("memory: too long / not text -> 400",(await call(p,"POST","/api/memory",{text:"x".repeat(501)},L)).s===400&&(await call(p,"POST","/api/memory",{text:5},L)).s===400);
   T("memory: foreign Host / foreign Origin rejected",(await call(p,"GET","/api/memory",null,{h:{Host:"evil.example"}})).s===403&&(await call(p,"POST","/api/memory",{text:"x"},{h:{Host:"127.0.0.1:"+p,Origin:"https://evil.example"}})).s===403);
   try{fs.unlinkSync(MF)}catch(e){}

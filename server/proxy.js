@@ -117,6 +117,11 @@ function addMemory(text){
   text=text.trim();if(SECRET_RX.test(text))return{code:400,body:{error:"ده شكله مفتاح أو باسورد أو رقم كارت، مش هحفظه."}};
   const notes=readMemory();if(!notes.some(n=>n.text===text))notes.push({text,t:new Date().toISOString().slice(0,10)});
   fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:notes.slice(-MAX_NOTES)},null,1),{mode:0o600});return{code:200,body:{ok:true}}}
+// Forget: remove notes by their exact text (the chat shows the user the list and asks first, see the forget tool).
+function forgetMemory(texts){
+  if(!Array.isArray(texts)||!texts.length||texts.length>MAX_NOTES||!texts.every(t=>typeof t==="string"))return{code:400,body:{error:"ابعت قايمة بنصوص الملاحظات اللي هتتمسح."}};
+  const drop=new Set(texts.map(t=>t.trim())),notes=readMemory(),keep=notes.filter(n=>!drop.has(n.text));
+  fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:keep},null,1),{mode:0o600});return{code:200,body:{removed:notes.length-keep.length,left:keep.length}}}
 const server=http.createServer(async(req,res)=>{
   try{
     const p=new URL(req.url,"http://x").pathname,m=req.method;
@@ -164,6 +169,7 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(r.code,{...baseHeaders,"Content-Type":"text/html; charset=utf-8"});return res.end('<!doctype html><meta charset="utf-8"><body dir="rtl" style="font:18px system-ui;padding:40px">'+r.html)}
     if(p==="/api/memory"){if(m==="GET")return send(res,200,{notes:readMemory()});
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
+      if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
       return send(res,405,{error:"Method غير مسموح."})}
     send(res,404,{error:"مش موجود."});
   }catch(e){send(res,e.code&&e.code>=400&&e.code<500?e.code:500,{error:e.code?e.message:"خطأ داخلي في السيرفر."})}
