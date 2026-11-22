@@ -160,5 +160,28 @@ const hand=(k,b)=>call("POST","/api/hands/"+k,b);
   T("hands: foreign Host / foreign Origin refused",(await call("POST","/api/hands/computer",{action:"read_file",path:dir},{Host:"evil.example"})).s===403&&(await call("POST","/api/hands/computer",{action:"read_file",path:dir},{Origin:"https://evil.example"})).s===403);
   T("hands: GET not allowed",(await call("GET","/api/hands/computer")).s===404);
 
+  // ---- phone over USB: a fake adb answers per command; the screen dump has a send button and a password field
+  const UI='<hierarchy><node text="مرحبا" class="android.widget.TextView" clickable="false" bounds="[0,0][100,50]"/><node text="Send" class="android.widget.Button" clickable="true" bounds="[800,2200][1000,2300]"/><node text="" resource-id="a:id/pw" class="android.widget.EditText" clickable="true" password="true" bounds="[100,500][980,600]"/></hierarchy>';
+  const adbCalls=[];let devices="List of devices attached\nR5CT123\tdevice\n";
+  hands.setSpawner((cmd,args)=>{adbCalls.push(args.join(" "));const c=new EventEmitter();c.stdout=new EventEmitter();c.stderr=new EventEmitter();
+    setTimeout(()=>{if(args[0]==="devices")c.stdout.emit("data",devices);if(args[0]==="pull"&&/ui\.xml$/.test(args[2]))fs.writeFileSync(args[2],UI);c.emit("close",0)},2);return c});
+  const ph=b=>call("POST","/api/hands/phone",b);
+  r=await ph({action:"read"});
+  T("phone: read lists the screen as numbered elements",r.s===200&&/\[2\] 🔘 Send/.test(r.j.result)&&/\[3\] ✏️/.test(r.j.result));
+  adbCalls.length=0;r=await ph({action:"tap",n:2});
+  T("phone: tap on Send waits for approval and does not tap",r.s===200&&r.j.confirm&&!adbCalls.some(x=>/input tap/.test(x)));
+  r=await call("POST","/api/hands/confirm",{id:r.j.confirm.id});
+  T("phone: approved tap taps the element's centre",r.s===200&&adbCalls.some(x=>x==="shell input tap 900 2250"));
+  r=await ph({action:"type",text:"hello"});
+  T("phone: typing refused while a password field is on screen",r.s===403);
+  r=await ph({action:"open_url",url:"javascript:alert(1)"});
+  T("phone: only http(s) links open",r.s===400);
+  r=await ph({action:"key",key:"enter"});
+  T("phone: Enter waits for approval",r.s===200&&!!r.j.confirm);
+  devices="List of devices attached\n";r=await ph({action:"read"});
+  T("phone: no phone connected -> clear message",r.s===409&&/وصّل الموبايل/.test(r.j.error));
+  devices="List of devices attached\nR5CT123\tunauthorized\n";r=await ph({action:"read"});
+  T("phone: not yet allowed on the phone -> tells him to press Allow",r.s===409&&/سماح/.test(r.j.error));
+
   console.log("RESULT pass="+pass+" fail="+fail);server.close();gmock.close();fs.rmSync(TMP,{recursive:true,force:true});process.exit(fail?1:0);
 })().catch(e=>{console.error(e);process.exit(1)});

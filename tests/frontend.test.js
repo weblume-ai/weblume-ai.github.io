@@ -49,7 +49,7 @@ const cfg={url:"http://x/v1",model:"m"};
   T("build_site: garbage input still renders",typeof c.renderSite(null)==="string"&&typeof c.renderSite({menu:"x",services:5})==="string");
   T("site intent detection",c.wantsSite("اعملي موقع كافيه")&&!c.wantsSite("اعملي موقع بـ Python Flask")&&!c.wantsSite("اعملي لعبة ثعبان")&&!c.wantsSite("اعمل عرض سعر لموقع مطعم")&&!c.wantsSite("عايز لوحة تحكم للمنيو بـ supabase")&&!c.wantsSite("اكتب بوست عن موقعي"));
   T("JSON-in-text fallback parsed",!!c.siteFromText('تمام {"kind":"cafe","name":"X"}')&&!c.siteFromText("no json"));
-  n=0;c=mk(async(u,o)=>{n++;return n===1?js_({choices:[{message:{content:"",tool_calls:[{id:"s1",function:{name:"build_site",arguments:JSON.stringify({kind:"cafe",name:"Sahr",menu:[{category:"A",items:[{name:"B",price:"1"}]}]})}}]}}]}):js_({choices:[{message:{content:"جاهز"}}]})});
+  n=0;c=mk(async(u,o)=>{if(/\/examples\//.test(u))return new Response("",{status:404});n++;return n===1?js_({choices:[{message:{content:"",tool_calls:[{id:"s1",function:{name:"build_site",arguments:JSON.stringify({kind:"cafe",name:"Sahr",menu:[{category:"A",items:[{name:"B",price:"1"}]}]})}}]}}]}):js_({choices:[{message:{content:"جاهز"}}]})});
   const sh=[{role:"user",content:"اعملي موقع كافيه"}],evs=[];await c.runAgent(cfg,[],sh,ev=>evs.push(ev),new AbortController().signal);
   const se=evs.find(x=>x.type==="site"),st=sh.find(x=>x.role==="tool");
   T("agent loop: build_site renders site event + compact tool result",se&&/Sahr/.test(se.html)&&st&&/SITE_DATA:/.test(st.content)&&st.content.length<se.html.length&&sh[sh.length-1].content==="جاهز");

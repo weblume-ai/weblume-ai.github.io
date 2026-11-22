@@ -267,7 +267,56 @@ async function computer(b){const a=str(b.action,30);
     return ok("📄 قريت: "+p+(s.size>100000?" (أول 100KB)":""),buf.toString("utf8").replace(new RegExp(SECRET_RX.source,"gi"),"[مخفي]"))}
   return bad(400,"action لازم: open_path, open_app, run_command, read_file.")}
 
+// ---- phone over USB debugging (adb). Reads the screen as numbered elements, taps by number; a tap on anything that
+// sends/pays/deletes, the Enter key, and installing an app wait for Asser's ✅ like the browser does.
+const ADB=()=>process.env.ADB_PATH||[path.join(process.env.LOCALAPPDATA||"","Android","Sdk","platform-tools","adb.exe")].find(f=>fs.existsSync(f))||"adb";
+const adb=(args,timeout)=>runCmd({cmd:ADB(),args,timeout:timeout||30000});
+const PHONE_DIR=()=>path.join(os.homedir(),"Downloads","Phainora-phone");
+let phoneNodes=[];
+const KEYS={back:"KEYCODE_BACK",home:"KEYCODE_HOME",recents:"KEYCODE_APP_SWITCH",enter:"KEYCODE_ENTER",delete:"KEYCODE_DEL"};
+function parseUi(xml){const out=[];
+  for(const m of String(xml).matchAll(/<node\b([^>]*)>/g)){const a=m[1],g=k=>{const x=a.match(new RegExp(" "+k+'="([^"]*)"'));return x?x[1].replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&#10;/g," "):""};
+    const b=g("bounds").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);if(!b)continue;
+    const text=g("text"),desc=g("content-desc"),click=g("clickable")==="true",edit=/EditText/.test(g("class"));
+    if(!text&&!desc&&!click&&!edit)continue;
+    out.push({text:text.slice(0,80),desc:desc.slice(0,80),id:g("resource-id").split("/").pop().slice(0,40),click,edit,password:g("password")==="true",
+      x:Math.round((+b[1]+ +b[3])/2),y:Math.round((+b[2]+ +b[4])/2)});if(out.length>=120)break}
+  return out}
+async function phoneDevice(){const r=await adb(["devices"]);if(r.code===-1)return{err:"مش لاقي adb على الجهاز. ثبّت Android platform-tools أو حط مساره في ADB_PATH."};
+  const lines=r.out.split(/\r?\n/).slice(1).map(l=>l.trim().split(/\s+/)).filter(x=>x[0]);
+  if(!lines.length)return{err:"مفيش موبايل متوصل. وصّل الموبايل بالكابل، وشغّل «تصحيح أخطاء USB» من خيارات المطوّر."};
+  if(lines.every(x=>x[1]==="unauthorized"))return{err:"الموبايل متوصل بس لسه ماوافقتش. افتح الموبايل واضغط «سماح» على رسالة تصحيح أخطاء USB."};
+  return{list:lines.map(x=>x[0]+" ("+x[1]+")")}}
+async function phone(b){const a=str(b.action,30);const d=await phoneDevice();if(d.err)return bad(409,d.err);
+  if(a==="devices")return ok("📱 الأجهزة المتوصلة","✅ "+d.list.join("\n"));
+  if(a==="read"){await adb(["shell","uiautomator","dump","/sdcard/wl-ui.xml"]);fs.mkdirSync(PHONE_DIR(),{recursive:true});const f=path.join(PHONE_DIR(),"ui.xml");
+    await adb(["pull","/sdcard/wl-ui.xml",f]);let xml="";try{xml=fs.readFileSync(f,"utf8")}catch(e){return bad(502,"مقدرتش أقرا الشاشة (ممكن الشاشة مقفولة).")}
+    phoneNodes=parseUi(xml);const app=(await adb(["shell","dumpsys","window"])).out.match(/mCurrentFocus=.*?\s([\w.]+)\/[\w.$]+\}/);
+    return ok("👀 قريت شاشة الموبايل"+(app?" ("+app[1]+")":""),phoneNodes.map((n,i)=>"["+(i+1)+"] "+(n.edit?"✏️ ":n.click?"🔘 ":"")+(n.text||n.desc||n.id||"(بدون اسم)")).join("\n")||"الشاشة فاضية.")}
+  if(a==="screenshot"){fs.mkdirSync(PHONE_DIR(),{recursive:true});const f=path.join(PHONE_DIR(),"shot-"+Date.now()+".png");
+    await adb(["shell","screencap","-p","/sdcard/wl-shot.png"]);const r=await adb(["pull","/sdcard/wl-shot.png",f]);
+    return r.code===0?ok("📸 صورة من الموبايل","✅ اتحفظت في: "+f):bad(502,"مقدرتش آخد صورة.")}
+  if(a==="open_url"){const u=str(b.url,1000);if(!/^https?:\/\/[^\s"'`]+$/i.test(u))return bad(400,"محتاج رابط http أو https.");
+    await adb(["shell","am","start","-a","android.intent.action.VIEW","-d",u]);return ok("🌐 فتحت على الموبايل: "+u,"✅ اتفتح. اعمل read عشان تشوف الشاشة.")}
+  if(a==="open_app"){const p=str(b.package,120);if(!/^[a-zA-Z][\w]*(\.[\w]+)+$/.test(p))return bad(400,"محتاج اسم الباكدج (زي com.whatsapp).");
+    const r=await adb(["shell","monkey","-p",p,"-c","android.intent.category.LAUNCHER","1"]);return /No activities found|Error/.test(r.out)?bad(404,"التطبيق ده مش متثبت: "+p):ok("🚀 فتحت "+p+" على الموبايل","✅ اتفتح.")}
+  if(a==="tap"){const n=phoneNodes[(+b.n||0)-1];if(!n)return bad(400,"اعمل read الأول وابعت n رقم العنصر.");
+    const label=n.text||n.desc||n.id,run=async()=>{await adb(["shell","input","tap",String(n.x),String(n.y)]);return ok("👆 ضغطت «"+label+"» على الموبايل","✅ اتضغط. اعمل read تاني عشان تشوف اللي حصل.")};
+    return RISKY.test(label)?ask("أضغط «"+label+"» على الموبايل؟",run):run()}
+  if(a==="type"){const t=str(b.text,500);if(!t)return bad(400,"محتاج text.");if(SECRET_RX.test(t))return bad(403,"ده شكله باسورد أو مفتاح، مش هكتبه.");
+    if(phoneNodes.some(n=>n.password&&n.edit))return bad(403,"فيه خانة باسورد على الشاشة. الباسوردات تكتبها انت بإيدك.");
+    await adb(["shell","input","text",t.replace(/ /g,"%s").replace(/(["'`\\$&|;<>()])/g,"\\$1")]);return ok("⌨ كتبت على الموبايل",/[^\x20-\x7E]/.test(t)?"⚠️ adb مابيكتبش عربي؛ اللي مش إنجليزي ممكن مايظهرش.":"✅ اتكتب.")}
+  if(a==="key"){const k=KEYS[str(b.key,20)];if(!k)return bad(400,"key لازم: "+Object.keys(KEYS).join(", "));const run=async()=>{await adb(["shell","input","keyevent",k]);return ok("⌨ زرار "+b.key+" على الموبايل","✅ اتداس.")};
+    return k==="KEYCODE_ENTER"?ask("أدوس Enter على الموبايل؟ (ممكن يبعت حاجة)",run):run()}
+  if(a==="swipe"){const dir=str(b.direction,10),m={up:[540,1600,540,500],down:[540,500,540,1600],left:[900,1100,180,1100],right:[180,1100,900,1100]}[dir];
+    if(!m)return bad(400,"direction لازم up/down/left/right.");await adb(["shell","input","swipe",...m.map(String),"300"]);return ok("👉 سحبت "+dir+" على الموبايل","✅ اتسحب.")}
+  if(a==="install_apk"){const p=resolvePath(b.path);if(!p||!/\.apk$/i.test(p)||!fs.existsSync(p))return bad(400,"محتاج مسار ملف .apk موجود على اللابتوب.");
+    return ask("أثبّت «"+path.basename(p)+"» على الموبايل؟",async()=>{const r=await adb(["install","-r",p],180000);return r.code===0?ok("📦 ثبّت "+path.basename(p)+" على الموبايل","✅ "+r.out.trim().slice(-300)):bad(502,"التثبيت فشل: "+r.out.trim().slice(-300))})}
+  if(a==="logs"){const r=await adb(["logcat","-d","-t","300","*:W"]);return ok("📜 آخر تحذيرات وأخطاء الموبايل",r.out.replace(new RegExp(SECRET_RX.source,"gi"),"[مخفي]").slice(-6000))}
+  return bad(400,"action لازم: devices, read, screenshot, open_url, open_app, tap, type, key, swipe, install_apk, logs.")}
+
 async function handle(kind,b,port){try{
+  if(kind==="phone")return await phone(b);
   if(kind==="browser")return await browser(b);if(kind==="google")return await google(b,port);if(kind==="computer")return await computer(b);if(kind==="confirm")return await confirm(b);
   return bad(404,"مش موجود.")}catch(e){return bad(e.code>=400&&e.code<600?e.code:502,String(e.message||e).split("\n")[0].slice(0,300))}}
-module.exports={handle,gConnect,gCallback,setLauncher,setSpawner,clickRisk,enterRisk,secretField,normName,SECRET_FILE};
+module.exports={handle,gConnect,gCallback,setLauncher,setSpawner,clickRisk,enterRisk,secretField,normName,SECRET_FILE,parseUi};

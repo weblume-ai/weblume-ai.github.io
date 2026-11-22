@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مِعمار | مقاولات وتشطيبات وترميم في الرياض</title>
+<meta name="description" content="مِعمار للمقاولات والتشطيبات: تشطيب شقق وفلل، ترميم، دهانات، أرضيات، كهرباء، مطابخ وحمامات. معاينة مجانية في الرياض.">
+<script>if(!matchMedia("(prefers-reduced-motion: reduce)").matches)document.documentElement.classList.add("motion")</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;600;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#16191D;--ink-2:#22272D;--paper:#F3EFE8;--sand:#E4DCCF;--or:#F2651D;--or-2:#FFB58A;--bp:#2E6BC6;--muted:#5D6067;--line:#D8CFC2;
+  --display:"Alexandria",sans-serif;--text:"IBM Plex Sans Arabic",sans-serif;--r:6px}
+*{box-sizing:border-box;margin:0;padding:0}
+html{overflow-x:clip}
+body{font:400 1.05rem/1.8 var(--text);color:var(--ink);background:var(--paper);overflow-x:clip}
+::selection{background:var(--or);color:#fff}
+a{color:inherit;text-decoration:none}
+img,video,canvas{display:block;max-width:100%;-webkit-user-drag:none;user-select:none;-webkit-touch-callout:none}
+.wrap{width:min(1220px,100% - 40px);margin-inline:auto}
+h1,h2,h3{font-family:var(--display);line-height:1.1}
+h2{font-size:clamp(2rem,5vw,3.8rem);font-weight:900}
+.kick{font:600 .9rem var(--display);color:var(--or);letter-spacing:.02em;display:block;margin-bottom:14px}
+.lead{color:var(--muted);font-size:1.12rem;max-width:58ch}
+.btn{display:inline-flex;align-items:center;gap:.7em;font:700 1rem var(--display);padding:1em 1.7em;border-radius:var(--r);border:0;cursor:pointer;transition:background .25s,color .25s,transform .25s}
+.btn-or{background:var(--or);color:#fff}.btn-or:hover{background:#d9530f}
+.btn-line{border:1.5px solid currentColor}.btn-line:hover{background:var(--ink);color:#fff}
+.btn:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--or);outline-offset:3px}
+section{padding:clamp(80px,11vw,150px) 0;position:relative}
+.grid-bg{background-image:linear-gradient(rgba(46,107,198,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(46,107,198,.09) 1px,transparent 1px);background-size:44px 44px}
+
+.nav{position:fixed;inset:0 0 auto;z-index:50;color:#fff;mix-blend-mode:difference}
+.nav .wrap{display:flex;align-items:center;gap:30px;height:80px}
+.logo{display:flex;align-items:center;gap:10px;font:900 1.5rem var(--display)}
+.logo svg{width:34px;height:34px}
+.links{display:flex;gap:28px;margin-inline-start:auto;font-weight:500}
+.menu-btn{display:none;margin-inline-start:auto;background:none;border:0;color:inherit;font:700 1rem var(--display);cursor:pointer;padding:10px}
+@media (max-width:860px){.links{display:none}.menu-btn{display:block}.nav.open{mix-blend-mode:normal;background:var(--ink)}
+  .nav.open .links{display:flex;position:absolute;inset:80px 0 auto;flex-direction:column;gap:0;background:var(--ink);padding:0 20px 20px}.nav.open .links a{padding:14px 0;border-bottom:1px solid #333}}
+
+#pre{display:none;position:fixed;inset:0;z-index:100;background:var(--ink);color:#fff;place-items:center}
+.motion #pre{display:grid}
+#pre svg{width:min(240px,50vw);overflow:visible}
+#pre path{fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+#pre .roof{stroke:var(--or)}
+#pre .name{display:block;text-align:center;font:900 clamp(2rem,6vw,3rem) var(--display);margin-top:18px;letter-spacing:.04em}
+#pre .pct{position:absolute;bottom:30px;left:30px;font:600 .9rem var(--display);color:#999;direction:ltr}
+
+.hero{height:100svh;padding:0;background:var(--ink);color:#fff;overflow:hidden}
+.hero canvas{position:absolute;inset:0;width:100%;height:100%}
+.hero img.poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.motion .hero img.poster{display:none}
+.hero .shade{position:absolute;inset:0;background:linear-gradient(0deg,rgba(14,16,19,.85),rgba(14,16,19,.1) 55%,rgba(14,16,19,.35))}
+.hero .copy{position:absolute;inset:auto 0 0;padding-bottom:clamp(40px,8vh,90px)}
+.hero h1{font-size:clamp(2.3rem,8.4vw,7rem);font-weight:900;letter-spacing:-.02em;white-space:nowrap} 
+.hero .says{position:relative;height:1.15em;overflow:hidden}
+.hero .says span{position:absolute;inset:0;display:block}
+.motion .hero .says span+span{transform:translateY(110%)}
+.hero .says span em{font-style:normal;color:var(--or)}
+.hero .row{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:24px;margin-top:20px}
+.hero .row p{max-width:44ch;color:#d4d4d4}
+.hero .prog{position:absolute;top:0;right:0;height:4px;width:100%;background:var(--or);transform:scaleX(0);transform-origin:right}
+.not-motion .hero .says span+span{display:none}
+
+.statement p{font:800 clamp(1.7rem,4.4vw,3.4rem)/1.35 var(--display);max-width:22ch}
+.statement .w{color:rgba(22,25,29,.16)}
+.not-motion .statement .w,html:not(.motion) .statement .w{color:var(--ink)}
+
+.svc{border-top:1px solid var(--ink)}
+.svc a{display:grid;grid-template-columns:80px 1fr auto;align-items:center;gap:20px;padding:30px 0;border-bottom:1px solid var(--line);transition:color .3s,padding .3s}
+.svc a:hover{color:var(--or);padding-inline-start:16px}
+.svc .n{font:600 1rem var(--display);color:var(--muted)}
+.svc h3{font-size:clamp(1.5rem,3.6vw,2.6rem);font-weight:800}
+.svc p{color:var(--muted);font-size:.98rem;max-width:36ch}
+.svc img.inline{display:none}
+.float{position:fixed;top:0;left:0;width:340px;aspect-ratio:4/3;pointer-events:none;z-index:30;border-radius:var(--r);overflow:hidden;opacity:0;transform:translate(-50%,-50%) scale(.8);box-shadow:0 30px 60px -20px rgba(0,0,0,.5)}
+.float img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .25s}
+.float img.on{opacity:1}
+@media (max-width:860px),(pointer:coarse){.float{display:none}.svc a{grid-template-columns:1fr;gap:10px}.svc .n{order:-1}.svc img.inline{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:var(--r);margin-top:8px}}
+
+.onsite{padding:0;height:110svh;background:var(--ink);color:#fff;overflow:hidden}
+.onsite video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.7}
+.onsite .in{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:20px}
+.onsite h2{font-size:clamp(2.6rem,9vw,7.6rem);line-height:1}
+.onsite h2 span{display:block}
+.onsite h2 span:last-child{color:var(--or)}
+
+.proj .track{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin-top:50px}
+.pcard{position:relative}
+.pcard .ph{position:relative;aspect-ratio:3/4;overflow:hidden;border-radius:var(--r);background:var(--bp)}
+.pcard .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.pcard .bp{filter:grayscale(1) invert(1) contrast(2.2) brightness(1.15);mix-blend-mode:screen;opacity:.85}
+.pcard .bpbg{position:absolute;inset:0;background:var(--bp)}
+.pcard .real{clip-path:inset(0 0 0 0)}
+.motion .pcard .real{clip-path:inset(100% 0 0 0)}
+.pcard h3{font-size:1.25rem;margin-top:14px}.pcard p{color:var(--muted);font-size:.95rem}
+@media (min-width:981px){.motion .proj{overflow:hidden}.motion .proj .track{display:flex;width:max-content}.motion .proj .pcard{width:400px;flex:none}}
+@media (max-width:980px){.proj .track{grid-template-columns:1fr 1fr}}@media (max-width:560px){.proj .track{grid-template-columns:1fr}}
+
+.process{background:var(--ink);color:#fff}
+.process .wrap{display:grid;grid-template-columns:1fr 1.2fr;gap:60px}
+.process .big{font:900 clamp(7rem,20vw,16rem)/1 var(--display);color:var(--or);direction:ltr;text-align:right}
+.process .lead{color:#b9b9b9}
+.stage{padding:34px 0;border-bottom:1px solid #333}
+.stage h3{font-size:1.6rem;margin-bottom:8px}.stage p{color:#b9b9b9}
+.motion .stage{opacity:.25;transition:opacity .4s}
+.motion .stage.on{opacity:1}
+@media (min-width:861px){.process .left{position:sticky;top:100px;align-self:start}}
+@media (max-width:860px){.process .wrap{grid-template-columns:1fr}.process .big{font-size:6rem}}
+
+.gua{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:46px}
+.g{border:1.5px solid var(--ink);border-radius:var(--r);padding:28px 24px;background:var(--paper)}
+.g svg{width:46px;height:46px;margin-bottom:18px}
+.g svg path,.g svg rect,.g svg circle{fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.g h3{font-size:1.2rem;margin-bottom:6px}.g p{color:var(--muted);font-size:.95rem}
+@media (max-width:980px){.gua{grid-template-columns:1fr 1fr}}@media (max-width:520px){.gua{grid-template-columns:1fr}}
+
+.book .wrap{display:grid;grid-template-columns:.9fr 1.1fr;gap:56px}
+form{display:grid;grid-template-columns:1fr 1fr;gap:16px;background:#fff;border:1.5px solid var(--ink);border-radius:var(--r);padding:clamp(22px,4vw,40px)}
+label{display:grid;gap:6px;font-weight:600;font-size:.95rem}label.full{grid-column:1/-1}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--paper);border:1.5px solid var(--line);border-radius:var(--r);padding:.8em 1em;width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--or);background:#fff}
+textarea{min-height:100px;resize:vertical}
+.err{grid-column:1/-1;color:#B4232A;font-size:.88rem;min-height:1.2em}
+form .btn{grid-column:1/-1;justify-content:center}
+@media (max-width:900px){.book .wrap{grid-template-columns:1fr}}@media (max-width:520px){form{grid-template-columns:1fr}}
+
+details{border-bottom:1px solid var(--line)}
+summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:20px;padding:22px 0;font:700 1.15rem var(--display)}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";width:14px;height:14px;border-bottom:2.5px solid var(--or);border-left:2.5px solid var(--or);transform:rotate(-45deg);transition:transform .3s;flex:none;margin-top:4px}
+details[open] summary::after{transform:rotate(135deg)}
+details p{color:var(--muted);padding-bottom:22px;max-width:70ch}
+
+.end{background:var(--or);color:var(--ink);text-align:center;overflow:hidden}
+.end h2{font-size:clamp(3rem,12vw,10rem);line-height:.95}
+.end .btn{margin-top:34px;background:var(--ink);color:#fff}
+footer{background:var(--ink);color:#bdbdbd;padding:60px 0 30px;font-size:.95rem}
+footer .wrap{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:30px}
+footer h4{color:#fff;font:700 1.05rem var(--display);margin-bottom:12px}
+footer .logo{color:#fff;margin-bottom:12px}
+footer .copy{grid-column:1/-1;border-top:1px solid #333;padding-top:20px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px}
+footer .copy a{color:var(--or)}
+@media (max-width:760px){footer .wrap{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<style id="i18n-css">.lang-btn{font:700 .9rem/1 var(--display,sans-serif);padding:.55em 1em;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer;margin-inline-start:14px}.lang-btn:focus-visible{outline:2px solid currentColor;outline-offset:3px}@media (max-width:900px){.lang-btn{margin-inline-start:auto}.lang-btn+.menu-btn{margin-inline-start:10px}}</style>
+</head>
+<body>
+<div id="pre" aria-hidden="true"><div>
+  <svg viewBox="0 0 200 160"><path class="roof" d="M12 78 100 12l88 66"/><path d="M34 62v86h132V62"/><path d="M84 148v-46h32v46"/><path d="M50 84h22v20H50zM128 84h22v20h-22z"/><path d="M4 148h192"/></svg>
+  <span class="name">مِعمار</span></div><span class="pct" id="pct">0%</span></div>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a href="#top" class="logo" aria-label="مِعمار"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 20 20 6l16 14M9 16v18h22V16" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>مِعمار</a>
+    <nav class="links" aria-label="القائمة"><a href="#services">الخدمات</a><a href="#projects">مشاريع</a><a href="#process">المراحل</a><a href="#book">معاينة مجانية</a></nav>
+    <button class="menu-btn" id="menuBtn" aria-expanded="false">القائمة</button>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero" id="hero">
+  <img class="poster" src="https://placehold.co/1280x720" data-photo="Modern White Building Facade" width="1280" height="720" alt="واجهة مبنى أبيض حديث">
+  <canvas id="walk" aria-hidden="true"></canvas>
+  <div class="shade"></div><div class="prog" id="prog"></div>
+  <div class="copy"><div class="wrap">
+    <h1 class="says" aria-label="نبني من الأساس، ونشطّب بإيدينا، لحد ما تستلم المفتاح">
+      <span>نبني من <em>الأساس.</em></span><span>ونشطّب <em>بإيدينا.</em></span><span>لحد <em>المفتاح.</em></span>
+    </h1>
+    <div class="row"><p>مقاولات وتشطيبات وترميم للشقق والفلل في الرياض: فريق واحد من أول رسمة لحد ما تسكن.</p><a href="#book" class="btn btn-or">احجز معاينة مجانية</a></div>
+  </div></div>
+</section>
+
+<section class="statement grid-bg">
+  <div class="wrap"><span class="kick">ليه مِعمار</span>
+    <p id="say">مقاول واحد مسؤول عن كل حاجة، بجدول مواعيد مكتوب، وسعر متفق عليه قبل ما نبدأ، ومن غير مفاجآت في النص.</p>
+  </div>
+</section>
+
+<section id="services">
+  <div class="wrap"><span class="kick">الخدمات</span><h2 style="margin-bottom:40px">كل اللي بيتك محتاجه</h2>
+    <div class="svc" id="svc">
+      <a href="#book" data-img="0"><span class="n">٠١</span><div><h3>تشطيب الشقق</h3><img class="inline" src="https://placehold.co/1280x762" data-photo="Living Room After Finishing" width="1280" height="762" alt="صالة بعد التشطيب" loading="lazy"></div><p>من المحارة للدهان والأرضيات، على المفتاح.</p></a>
+      <a href="#book" data-img="1"><span class="n">٠٢</span><div><h3>ترميم الفلل</h3><img class="inline" src="https://placehold.co/1280x853" data-photo="Villa After Restoration" width="1280" height="853" alt="فيلا بعد الترميم" loading="lazy"></div><p>واجهات وأسطح وتعديل التقسيم الداخلي.</p></a>
+      <a href="#book" data-img="2"><span class="n">٠٣</span><div><h3>الدهانات</h3><img class="inline" src="https://placehold.co/1280x960" data-photo="A worker plastering a wall" width="1280" height="960" alt="عامل يلبّس حيطة بالمسطرين" loading="lazy"></div><p>داخلي وخارجي، بخامات تتحمل شمس الرياض.</p></a>
+      <a href="#book" data-img="3"><span class="n">٠٤</span><div><h3>الأرضيات والبورسلين</h3><img class="inline" src="https://placehold.co/1024x1024" data-photo="Porcelain installation" width="1024" height="1024" alt="تركيب بورسلين" loading="lazy"></div><p>بورسلين ورخام وباركيه، بميزان ليزر.</p></a>
+      <a href="#book" data-img="4"><span class="n">٠٥</span><div><h3>الكهرباء والإنارة</h3><img class="inline" src="https://placehold.co/1280x853" data-photo="Ceiling lighting" width="1280" height="853" alt="إنارة سقف" loading="lazy"></div><p>تأسيس وتمديدات وإنارة مخفية.</p></a>
+      <a href="#book" data-img="5"><span class="n">٠٦</span><div><h3>المطابخ والحمامات</h3><img class="inline" src="https://placehold.co/1280x848" data-photo="Modern kitchen" width="1280" height="848" alt="مطبخ حديث" loading="lazy"></div><p>تصميم وتنفيذ، من السباكة للتركيب.</p></a>
+    </div>
+  </div>
+  <div class="float" id="float" aria-hidden="true">
+    <img src="https://placehold.co/1280x762" data-photo="living" width="1280" height="762" alt=""><img src="https://placehold.co/1280x853" data-photo="villa" width="1280" height="853" alt=""><img src="https://placehold.co/1280x960" data-photo="paint" width="1280" height="960" alt=""><img src="https://placehold.co/1024x1024" data-photo="floor" width="1024" height="1024" alt=""><img src="https://placehold.co/1280x853" data-photo="elec" width="1280" height="853" alt=""><img src="https://placehold.co/1280x848" data-photo="kitchen" width="1280" height="848" alt="">
+  </div>
+</section>
+
+<section class="onsite" id="onsite">
+  <video src="assets/video.mp4" data-video="the work in progress, real footage" muted loop playsinline autoplay preload="metadata" aria-hidden="true"></video>
+  <div class="in"><h2><span>الموقع</span><span>شغّال.</span></h2></div>
+</section>
+
+<section class="proj" id="projects">
+  <div class="wrap"><span class="kick">مشاريع</span><h2>من الرسمة للحقيقة</h2>
+    <div class="track" id="ptrack">
+      <article class="pcard"><div class="ph"><div class="bpbg"></div><img class="bp" src="https://placehold.co/1280x762" data-photo="living" width="1280" height="762" alt="" aria-hidden="true"><img class="real" src="https://placehold.co/1280x762" data-photo="Living room after finishing" width="1280" height="762" alt="صالة معيشة بعد التشطيب" loading="lazy"></div><h3>شقة في حي الياسمين</h3><p>تشطيب كامل · ١٨٠ م²</p></article>
+      <article class="pcard"><div class="ph"><div class="bpbg"></div><img class="bp" src="https://placehold.co/1280x848" data-photo="kitchen" width="1280" height="848" alt="" aria-hidden="true"><img class="real" src="https://placehold.co/1280x848" data-photo="Kitchen after execution" width="1280" height="848" alt="مطبخ بعد التنفيذ" loading="lazy"></div><h3>مطبخ مفتوح</h3><p>تصميم وتنفيذ</p></article>
+      <article class="pcard"><div class="ph"><div class="bpbg"></div><img class="bp" src="https://placehold.co/1280x853" data-photo="bath" width="1280" height="853" alt="" aria-hidden="true"><img class="real" src="https://placehold.co/1280x853" data-photo="Marble bathroom" width="1280" height="853" alt="حمام رخام" loading="lazy"></div><h3>حمام رخام</h3><p>سباكة وتكسيات</p></article>
+      <article class="pcard"><div class="ph"><div class="bpbg"></div><img class="bp" src="https://placehold.co/1280x853" data-photo="villa" width="1280" height="853" alt="" aria-hidden="true"><img class="real" src="https://placehold.co/1280x853" data-photo="Villa After Restoration" width="1280" height="853" alt="فيلا بعد الترميم" loading="lazy"></div><h3>ترميم فيلا</h3><p>واجهات وأسطح</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="process" id="process">
+  <div class="wrap">
+    <div class="left"><span class="kick">المراحل</span><div class="big" id="bigN">01</div><p class="lead">كل مرحلة ليها ميعاد مكتوب، وبنبعتلك صور كل يوم.</p></div>
+    <div id="stages">
+      <div class="stage"><h3>معاينة مجانية</h3><p>نزورك، نقيس، ونسمع اللي في دماغك.</p></div>
+      <div class="stage"><h3>تصميم وعرض سعر</h3><p>رسومات وبنود وسعر نهائي قبل ما نبدأ.</p></div>
+      <div class="stage"><h3>التأسيس</h3><p>كهرباء وسباكة وعزل، وتستلم كل بند بالصور.</p></div>
+      <div class="stage"><h3>التشطيب</h3><p>محارة ودهان وأرضيات وأسقف.</p></div>
+      <div class="stage"><h3>التسليم</h3><p>نلف معاك ركن ركن، وتستلم المفتاح.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="grid-bg">
+  <div class="wrap"><span class="kick">التزامنا</span><h2>مكتوب في العقد</h2>
+    <div class="gua">
+      <div class="g"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="8" y="6" width="32" height="38" rx="2"/><path d="M15 16h18M15 24h18M15 32h10"/></svg><h3>عقد ببنود واضحة</h3><p>كل بند بسعره وخامته.</p></div>
+      <div class="g"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><path d="M24 13v11l7 5"/></svg><h3>جدول زمني</h3><p>تاريخ لكل مرحلة، ومتابعة أسبوعية.</p></div>
+      <div class="g"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5 8 11v12c0 10 7 17 16 20 9-3 16-10 16-20V11z"/><path d="m17 24 5 5 9-10"/></svg><h3>ضمان على التنفيذ</h3><p>نرجع نصلّح أي عيب في فترة الضمان.</p></div>
+      <div class="g"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="12" width="36" height="26" rx="2"/><circle cx="24" cy="25" r="7"/><path d="M15 12l3-5h12l3 5"/></svg><h3>صور كل يوم</h3><p>تتابع شغلك وانت في مكانك.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="book" id="book">
+  <div class="wrap">
+    <div><span class="kick">معاينة مجانية</span><h2>نبدأ بزيارة</h2><p class="lead" style="margin-top:16px">املا البيانات وهيتفتحلك واتساب برسالة جاهزة. بنرد في نفس اليوم ونحدد ميعاد المعاينة.</p></div>
+    <form id="bookForm" novalidate>
+      <label>الاسم<input name="name" autocomplete="name" required></label>
+      <label>رقم الجوال<input name="phone" type="tel" inputmode="tel" autocomplete="tel" required placeholder="05xxxxxxxx"></label>
+      <label>نوع المشروع<select name="type" required><option value="">اختار</option><option>تشطيب شقة</option><option>ترميم فيلا</option><option>دهانات</option><option>أرضيات وبورسلين</option><option>كهرباء وإنارة</option><option>مطبخ أو حمام</option></select></label>
+      <label>المساحة التقريبية<select name="size"><option>أقل من ١٥٠ م²</option><option>١٥٠ – ٣٠٠ م²</option><option>٣٠٠ – ٥٠٠ م²</option><option>أكبر من ٥٠٠ م²</option></select></label>
+      <label>الحي<input name="area" placeholder="مثلاً: النرجس"></label>
+      <label>ميعاد يناسبك<input name="date" type="date" required></label>
+      <label class="full">تفاصيل<textarea name="note" placeholder="اللي في دماغك بالظبط"></textarea></label>
+      <p class="err" id="err" role="alert"></p>
+      <button class="btn btn-or" type="submit">احجز المعاينة على واتساب</button>
+    </form>
+  </div>
+</section>
+
+<section>
+  <div class="wrap"><span class="kick">أسئلة</span><h2 style="margin-bottom:24px">قبل ما تبدأ</h2>
+    <details><summary>المعاينة مجانية فعلاً؟</summary><p>أيوه، بنزورك ونقيس ونديك عرض سعر من غير أي التزام.</p></details>
+    <details><summary>السعر ممكن يزيد في النص؟</summary><p>لأ. السعر مكتوب في العقد بندًا بند، وأي إضافة بتطلبها بنكتبها ونتفق عليها قبل التنفيذ.</p></details>
+    <details><summary>مين بيشتري الخامات؟</summary><p>زي ما تحب: إحنا بالكامل، أو انت تختار وإحنا ننفذ.</p></details>
+    <details><summary>بتشتغلوا خارج الرياض؟</summary><p>بنشتغل في الرياض وما حولها. ابعتلنا مكانك ونرد عليك.</p></details>
+  </div>
+</section>
+
+<section class="end"><div class="wrap"><h2>ابدأ<br>مشروعك.</h2><a href="#book" class="btn">احجز معاينة مجانية</a></div></section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><a href="#top" class="logo"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 20 20 6l16 14M9 16v18h22V16" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg>مِعمار</a><p>مقاولات وتشطيبات وترميم في الرياض.</p></div>
+    <div><h4>المواعيد</h4><p>السبت – الخميس، ٨ ص – ٦ م</p></div>
+    <div><h4>المكتب</h4><p>الرياض، المملكة العربية السعودية</p><a class="btn btn-line" style="margin-top:12px;padding:.6em 1.1em" href="https://www.google.com/maps/search/?api=1&query=Riyadh" target="_blank" rel="noopener">الاتجاهات</a></div>
+    <div class="copy"><span>© <span id="yr"></span> مِعمار</span><span>تصميم وتطوير <a href="https://phainora.pages.dev" target="_blank" rel="noopener">Phainora</a></span></div>
+  </div>
+</footer>
+<!--i18n--><script>
+// Arabic / English: the page is written in Arabic; English swaps the texts from this list and turns the page left-to-right
+(function () {
+  const EN = {"مِعمار | مقاولات وتشطيبات وترميم في الرياض": "Mimar | Contracting, Finishing & Restoration in Riyadh", "مِعمار للمقاولات والتشطيبات: تشطيب شقق وفلل، ترميم، دهانات، أرضيات، كهرباء، مطابخ وحمامات. معاينة مجانية في الرياض.": "Mimar Contracting & Finishing: Apartment & Villa finishes, restoration, paints, flooring, electricity, kitchens and bathrooms. Free consultation in Riyadh.", "مِعمار": "Mimar", "القائمة": "Menu", "الخدمات": "Services", "مشاريع": "Projects", "المراحل": "Phases", "معاينة مجانية": "Free Consultation", "واجهة مبنى أبيض حديث": "Modern White Building Facade", "نبني من الأساس، ونشطّب بإيدينا، لحد ما تستلم المفتاح": "We build from the foundation, finish with our hands, until you receive the key", "نبني من": "We build from", "الأساس.": "the foundation.", "…": "… every other text on the page"};  const q = new URLSearchParams(location.search).get("lang");
+  let lang = q || "ar"; try { lang = q || localStorage.getItem("lang") || "ar" } catch (e) {}
+  window.T = s => (lang === "en" && EN[s]) || s;
+  if (lang === "en") {
+    const H = document.documentElement; H.lang = "en"; H.dir = "ltr";
+    document.querySelectorAll("option:not([value])").forEach(o => o.value = o.textContent.trim());  // the shop still gets Arabic
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => /SCRIPT|STYLE/.test(n.parentNode.nodeName) ? 2 : 1 });
+    for (let n; (n = w.nextNode());) { const k = n.nodeValue.trim(); if (EN[k]) n.nodeValue = n.nodeValue.replace(k, EN[k]) }
+    document.querySelectorAll("[alt],[placeholder],[aria-label],[title]").forEach(el => ["alt", "placeholder", "aria-label", "title"].forEach(a => {
+      const v = (el.getAttribute(a) || "").trim(); if (EN[v]) el.setAttribute(a, EN[v]) }));
+    document.title = EN[document.title.trim()] || document.title;
+    const md = document.querySelector('meta[name="description"]'); if (md && EN[md.content.trim()]) md.content = EN[md.content.trim()];
+  }
+  const next = lang === "en" ? "ar" : "en", btn = document.createElement("button");
+  btn.type = "button"; btn.className = "lang-btn"; btn.lang = next; btn.textContent = next === "en" ? "EN" : "عربي";
+  btn.setAttribute("aria-label", next === "en" ? "Switch to English" : "التحويل للعربي");
+  btn.onclick = () => { try { localStorage.setItem("lang", next) } catch (e) {} location.href = location.pathname + "?lang=" + next + location.hash };
+  const wrap = document.querySelector(".nav .wrap"); if (wrap) wrap.insertBefore(btn, wrap.querySelector(".menu-btn"));
+})();
+</script><!--/i18n-->
+
+<script>
+// the company's WhatsApp number (international format, digits only) — the client's own number goes here
+const WA = "966500000000";
+document.getElementById("yr").textContent = new Date().getFullYear();
+document.addEventListener("contextmenu", e => { if (e.target.closest("img,video,canvas")) e.preventDefault() });
+document.addEventListener("dragstart", e => { if (/IMG|VIDEO|CANVAS/.test(e.target.tagName)) e.preventDefault() });
+const nav = document.getElementById("nav"), menuBtn = document.getElementById("menuBtn");
+menuBtn.addEventListener("click", () => { const o = nav.classList.toggle("open"); menuBtn.setAttribute("aria-expanded", o) });
+nav.querySelectorAll(".links a").forEach(a => a.addEventListener("click", () => nav.classList.remove("open")));
+const form = document.getElementById("bookForm"), err = document.getElementById("err");
+form.date.min = new Date().toISOString().slice(0, 10);
+form.addEventListener("submit", e => {
+  e.preventDefault(); const f = new FormData(form);
+  if (!f.get("name").trim() || !/^[0-9+ ]{9,15}$/.test(f.get("phone").trim()) || !f.get("type") || !f.get("date")) { err.textContent = "اكتب الاسم ورقم جوال صحيح، واختار نوع المشروع والميعاد."; return }
+  err.textContent = "";
+  const msg = ["طلب معاينة من الموقع:", "الاسم: " + f.get("name"), "الجوال: " + f.get("phone"), "المشروع: " + f.get("type"), "المساحة: " + f.get("size"),
+    f.get("area") ? "الحي: " + f.get("area") : "", "الميعاد: " + f.get("date"), f.get("note") ? "تفاصيل: " + f.get("note") : ""].filter(Boolean).join("\n");
+  open("https://wa.me/" + WA + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+});
+// services: the picture follows the pointer over the rows
+const fl = document.getElementById("float"), flImgs = [...fl.querySelectorAll("img")];
+if (matchMedia("(pointer:fine) and (min-width:861px)").matches) {
+  document.querySelectorAll("#svc a").forEach(a => {
+    a.addEventListener("pointerenter", () => { flImgs.forEach((im, i) => im.classList.toggle("on", i == a.dataset.img)); fl.style.opacity = 1; fl.style.transform = "translate(-50%,-50%) scale(1)" });
+    a.addEventListener("pointerleave", () => { fl.style.opacity = 0; fl.style.transform = "translate(-50%,-50%) scale(.8)" });
+  });
+  addEventListener("pointermove", e => { fl.style.left = e.clientX + "px"; fl.style.top = e.clientY + "px" });
+  fl.style.transition = "opacity .3s, transform .4s";
+}
+// the statement is split into words so they can fill with ink as it scrolls
+const say = document.getElementById("say");
+say.innerHTML = say.textContent.split(" ").map(w => '<span class="w">' + w + "</span>").join(" ");
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script>
+const pre = document.getElementById("pre");
+setTimeout(() => pre && pre.remove(), 5000);  // never stuck behind the opening
+if (!window.gsap) { pre && pre.remove(); document.documentElement.classList.remove("motion") }
+else {
+  gsap.registerPlugin(ScrollTrigger);
+  const mm = gsap.matchMedia();
+  // the walk: 93 frames of the building, drawn on a canvas as the hero scrolls
+  const N = 93, frames = [], cv = document.getElementById("walk"), cx = cv.getContext("2d"), cur = { f: 0 };
+  for (let i = 1; i <= N; i++) { const im = new Image(); im.src = "frames/f" + String(i).padStart(3, "0") + ".webp"; frames.push(im) }
+  function draw() { const im = frames[Math.round(cur.f)]; if (!im || !im.complete || !im.naturalWidth) return;
+    const w = cv.width = cv.clientWidth * devicePixelRatio, h = cv.height = cv.clientHeight * devicePixelRatio, s = Math.max(w / im.naturalWidth, h / im.naturalHeight);
+    cx.drawImage(im, (w - im.naturalWidth * s) / 2, (h - im.naturalHeight * s) / 2, im.naturalWidth * s, im.naturalHeight * s) }
+  frames[0].onload = draw; addEventListener("resize", draw);
+
+  mm.add("(prefers-reduced-motion: no-preference)", () => {
+    // opening: the house is drawn line by line, the roof in orange, the count runs, then the curtain lifts
+    const paths = pre.querySelectorAll("path"), pct = document.getElementById("pct"), c = { v: 0 };
+    paths.forEach(p => { const L = p.getTotalLength(); gsap.set(p, { strokeDasharray: L, strokeDashoffset: L }) });
+    gsap.timeline()
+      .to(paths, { strokeDashoffset: 0, duration: 1.3, stagger: .12, ease: "power2.inOut" })
+      .to(c, { v: 100, duration: 1.8, ease: "power1.inOut", onUpdate: () => pct.textContent = Math.round(c.v) + "%" }, 0)
+      .from("#pre .name", { y: 30, autoAlpha: 0, duration: .6, ease: "power3.out" }, "-=.6")
+      .to(pre, { yPercent: -100, duration: 1, ease: "power4.inOut", onComplete: () => pre.remove() }, "+=.25")
+      .from(".hero .says span:first-child", { yPercent: 110, duration: 1, ease: "expo.out" }, "-=.45")
+      .from(".hero .row > *", { y: 30, autoAlpha: 0, duration: .8, stagger: .1, ease: "power3.out" }, "-=.6")
+      .from(".nav .logo, .nav .links a, .menu-btn", { y: -20, autoAlpha: 0, duration: .6, stagger: .05 }, "<");
+    // hero: hold the screen while the building passes and the three lines swap
+    const says = gsap.utils.toArray(".hero .says span");
+    const ht = gsap.timeline({ scrollTrigger: { trigger: "#hero", start: "top top", end: "+=260%", pin: true, scrub: .6 } });
+    ht.to(cur, { f: N - 1, ease: "none", onUpdate: draw, duration: 3 }, 0)
+      .to("#prog", { scaleX: 1, ease: "none", duration: 3 }, 0)
+      .to(says[0], { yPercent: -110, duration: .3 }, .9).to(says[1], { yPercent: 0, duration: .3 }, .9)
+      .to(says[1], { yPercent: -110, duration: .3 }, 1.9).to(says[2], { yPercent: 0, duration: .3 }, 1.9);
+    // the statement fills with ink word by word
+    gsap.to("#say .w", { color: "#16191D", stagger: .5, ease: "none", scrollTrigger: { trigger: ".statement", start: "top 70%", end: "bottom 60%", scrub: true } });
+    gsap.from(".kick, h2", { y: 40, autoAlpha: 0, duration: .9, ease: "power3.out", stagger: .05, scrollTrigger: { trigger: "#services", start: "top 85%" } });
+    ScrollTrigger.batch("#svc a", { start: "top 90%", onEnter: b => gsap.from(b, { y: 40, autoAlpha: 0, duration: .7, stagger: .08, ease: "power3.out" }) });
+    // footage: the frame opens from a slit as it arrives, the words come apart
+    gsap.fromTo("#onsite video", { clipPath: "inset(42% 30% 42% 30%)", scale: 1.25 }, { clipPath: "inset(0% 0% 0% 0%)", scale: 1, ease: "none", scrollTrigger: { trigger: "#onsite", start: "top 85%", end: "top top", scrub: true } });
+    gsap.from("#onsite h2 span", { xPercent: i => i ? -40 : 40, autoAlpha: 0, ease: "none", stagger: .1, scrollTrigger: { trigger: "#onsite", start: "top 60%", end: "top 10%", scrub: true } });
+    // process: the big number follows the stage in view
+    const stages = gsap.utils.toArray(".stage"), bigN = document.getElementById("bigN");
+    stages.forEach((st, i) => ScrollTrigger.create({ trigger: st, start: "top 55%", end: "bottom 55%",
+      onToggle: s => { if (!s.isActive) return; stages.forEach(x => x.classList.toggle("on", x === st));
+        gsap.fromTo(bigN, { yPercent: 40, autoAlpha: 0 }, { yPercent: 0, autoAlpha: 1, duration: .45, ease: "power3.out" }); bigN.textContent = String(i + 1).padStart(2, "0") } }));
+    // guarantees: the line icons draw themselves
+    document.querySelectorAll(".g svg *").forEach(p => { const L = p.getTotalLength ? p.getTotalLength() : 200; gsap.set(p, { strokeDasharray: L, strokeDashoffset: L }) });
+    ScrollTrigger.batch(".g", { start: "top 85%", onEnter: b => { gsap.from(b, { y: 50, autoAlpha: 0, duration: .8, stagger: .12, ease: "power3.out" });
+      b.forEach((g, i) => gsap.to(g.querySelectorAll("svg *"), { strokeDashoffset: 0, duration: 1.2, delay: .2 + i * .12, stagger: .1, ease: "power2.inOut" })) } });
+    gsap.from("form", { y: 60, autoAlpha: 0, duration: 1, ease: "power3.out", scrollTrigger: { trigger: "form", start: "top 85%" } });
+    gsap.from("details", { y: 30, autoAlpha: 0, duration: .6, stagger: .08, scrollTrigger: { trigger: "details", start: "top 88%" } });
+    gsap.from(".end h2", { scale: .7, autoAlpha: 0, ease: "none", scrollTrigger: { trigger: ".end", start: "top 90%", end: "center 60%", scrub: true } });
+  });
+  // projects: desktop travels sideways; each blueprint turns into its photograph as it arrives
+  mm.add("(min-width: 981px) and (prefers-reduced-motion: no-preference)", () => {
+    const tr = document.getElementById("ptrack"), dist = () => tr.scrollWidth - tr.parentElement.clientWidth;
+    const pt = gsap.to(tr, { x: () => dist() * (document.documentElement.dir === "rtl" ? 1 : -1), ease: "none", scrollTrigger: { trigger: "#projects", start: "top top", end: () => "+=" + (dist() + innerHeight * .6), pin: true, scrub: .8, invalidateOnRefresh: true } });
+    gsap.utils.toArray(".pcard").forEach(card => gsap.to(card.querySelector(".real"), { clipPath: "inset(0% 0 0 0)", ease: "none",
+      scrollTrigger: { trigger: card, containerAnimation: pt, start: "left 85%", end: "left 35%", scrub: true } }));
+  });
+  mm.add("(max-width: 980px) and (prefers-reduced-motion: no-preference)", () => {
+    gsap.utils.toArray(".pcard").forEach(card => gsap.to(card.querySelector(".real"), { clipPath: "inset(0% 0 0 0)", ease: "none", scrollTrigger: { trigger: card, start: "top 85%", end: "top 30%", scrub: true } }));
+  });
+  addEventListener("load", () => ScrollTrigger.refresh());
+}
+</script>
+<!--motion+-->
+<style id="mplus-css">
+.mp-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:200;transform-origin:0 50%;transform:scaleX(0);pointer-events:none;
+  background:var(--mint,var(--or,var(--teal,var(--cop,var(--gold,var(--red,var(--ice,var(--pist))))))))}
+[dir=rtl] .mp-bar{transform-origin:100% 50%}
+.mp-ring{position:fixed;top:0;left:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;z-index:199;pointer-events:none;
+  border:1.5px solid var(--mint,var(--or,var(--teal,var(--cop,var(--gold,var(--red,var(--ice,var(--pist))))))));display:grid;place-items:center;
+  font:700 11px/1 var(--display,sans-serif);color:#fff;mix-blend-mode:difference;transition:width .3s,height .3s,margin .3s,background .3s,opacity .3s;opacity:0}
+.mp-ring.on{opacity:1}.mp-ring.big{width:64px;height:64px;margin:-32px 0 0 -32px}.mp-ring.view{width:84px;height:84px;margin:-42px 0 0 -42px;background:rgba(255,255,255,.95);color:#000;mix-blend-mode:normal}
+@media (pointer:coarse){.mp-ring{display:none}}
+html.lenis,html.lenis body{height:auto}.lenis.lenis-smooth{scroll-behavior:auto!important}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script>
+(function () {
+  if (!window.gsap || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const bar = document.createElement("i"); bar.className = "mp-bar"; document.body.appendChild(bar);
+  gsap.to(bar, { scaleX: 1, ease: "none", scrollTrigger: { start: 0, end: "max", scrub: .3 } });
+  // smooth inertia scrolling; ScrollTrigger reads it on every frame
+  if (window.Lenis) { const lenis = new Lenis({ duration: 1.15, smoothWheel: true });
+    lenis.on("scroll", ScrollTrigger.update); gsap.ticker.add(t => lenis.raf(t * 1000)); gsap.ticker.lagSmoothing(0);
+    document.querySelectorAll('a[href^="#"]').forEach(a => a.addEventListener("click", e => { const id = a.getAttribute("href");
+      if (id.length > 1 && document.querySelector(id)) { e.preventDefault(); lenis.scrollTo(id, { offset: -70 }) } })) }
+  // headings lean with scroll speed
+  const heads = gsap.utils.toArray("section h2"), skew = { v: 0 };
+  ScrollTrigger.create({ onUpdate: s => { const v = gsap.utils.clamp(-6, 6, s.getVelocity() / -300);
+    if (Math.abs(v) > Math.abs(skew.v)) { skew.v = v; gsap.to(skew, { v: 0, duration: .8, ease: "power3", overwrite: true, onUpdate: () => gsap.set(heads, { skewY: skew.v }) }) } } });
+  if (!matchMedia("(pointer:fine)").matches) return;
+  // the pointer ring: bigger on anything clickable, "view" on photographs
+  const ring = document.createElement("i"); ring.className = "mp-ring"; document.body.appendChild(ring);
+  const rx = gsap.quickTo(ring, "x", { duration: .35, ease: "power3" }), ry = gsap.quickTo(ring, "y", { duration: .35, ease: "power3" });
+  const viewWord = document.documentElement.lang === "en" ? "View" : "شوف";
+  addEventListener("pointermove", e => { rx(e.clientX); ry(e.clientY); ring.classList.add("on");
+    const t = e.target.closest("a,button,label,summary,img,video"), img = t && /IMG|VIDEO/.test(t.tagName) && !t.closest("a,button,.hero,#hero");
+    ring.classList.toggle("big", !!t && !img); ring.classList.toggle("view", !!img); ring.textContent = img ? viewWord : "" });
+  document.addEventListener("pointerleave", () => ring.classList.remove("on"));
+  // buttons lean toward the pointer
+  document.querySelectorAll(".btn").forEach(b => { const mx = gsap.quickTo(b, "x", { duration: .4 }), my = gsap.quickTo(b, "y", { duration: .4 });
+    b.addEventListener("pointermove", e => { const r = b.getBoundingClientRect(); mx((e.clientX - r.left - r.width / 2) * .25); my((e.clientY - r.top - r.height / 2) * .35) });
+    b.addEventListener("pointerleave", () => { mx(0); my(0) }) });
+})();
+</script>
+<!--/motion+-->
+</body>
+</html>

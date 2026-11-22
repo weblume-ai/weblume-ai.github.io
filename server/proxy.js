@@ -107,6 +107,26 @@ async function factoryState(run){const r=await factoryCall("GET","/api/state?run
     siteUrl:site?FACTORY()+"/site/"+site.split("/").map(encodeURIComponent).join("/").replace(/index\.html$/,""):"",
     chat:(Array.isArray(s.chat)?s.chat:[]).slice(-300).map(c=>({from:String(c.from||""),text:String(c.text||"").slice(0,300)})),
     ask:s.ask&&s.ask.question?{question:String(s.ask.question).slice(0,300)}:null}}}
+// Free photos for the sites the AI writes: the page sends each placeholder's description, we search Pixabay and send the
+// picture back as a data: URL, so the finished site stays one file that works anywhere (Pixabay asks not to hotlink).
+const PIXABAY_KEY=()=>process.env.PIXABAY_API_KEY||(()=>{try{const m=fs.readFileSync(path.join(ROOT,"..","weblume-company",".env"),"utf8").match(/^\s*PIXABAY_API_KEY\s*=\s*(\S+)/m);return m?m[1]:""}catch(e){return ""}})();
+const PHOTO_CACHE=new Map();
+async function photo(q,w){
+  q=String(q||"").replace(/[^\p{L}\p{N} ,.'-]/gu," ").trim().slice(0,300);if(!q)return{code:400,body:{error:"الوصف مطلوب."}};
+  const key=PIXABAY_KEY();if(!key)return{code:503,body:{error:"مفيش مفتاح Pixabay (PIXABAY_API_KEY في .env)."}};
+  const ck=q+"|"+(w>700?"L":"S");if(PHOTO_CACHE.has(ck))return PHOTO_CACHE.get(ck);
+  // long prompts search badly: keep the first few content words (the subject comes first in our prompts)
+  const words=q.split(/[\s,]+/).filter(x=>x.length>2&&!/^(photo|photorealistic|realistic|image|wide|text|logo|with|and|the|from|into|on|in|of|at|no)$/i.test(x)).slice(0,6).join(" ");
+  let hit=null;
+  for(const qq of [words,words.split(" ").slice(0,3).join(" ")]){
+    try{const r=await upstream("https://pixabay.com/api/?image_type=photo&safesearch=true&per_page=5&key="+encodeURIComponent(key)+"&q="+encodeURIComponent(qq),{});
+      const j=r.ok?await r.json():{};if(j.hits&&j.hits.length){hit=j.hits[0];break}}catch(e){return{code:502,body:{error:"مش قادر أوصل لـ Pixabay."}}}}
+  if(!hit)return{code:404,body:{error:"مفيش صورة مناسبة."}};
+  let img;try{img=await upstream(w>700?hit.largeImageURL:hit.webformatURL,{})}catch(e){return{code:502,body:{error:"مش قادر أحمّل الصورة."}}}
+  if(!img.ok)return{code:502,body:{error:"مش قادر أحمّل الصورة."}};
+  const b=Buffer.from(await img.arrayBuffer()),out={code:200,body:{src:"data:"+(img.headers.get("content-type")||"image/jpeg")+";base64,"+b.toString("base64"),
+    credit:"Photo by "+String(hit.user||"").slice(0,60)+" on Pixabay ("+String(hit.pageURL||"").slice(0,200)+")"}};
+  if(PHOTO_CACHE.size>60)PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);PHOTO_CACHE.set(ck,out);return out}
 // Memory: short notes (clients, projects, preferences) in a local file. Plain text on disk, so anything that looks like a secret is refused.
 const MEMORY_FILE=()=>process.env.WEBLUME_MEMORY_FILE||path.join(ROOT,"weblume-memory.json");
 const MAX_NOTES=200;
@@ -131,6 +151,10 @@ const server=http.createServer(async(req,res)=>{
     if(m!=="GET"&&m!=="HEAD"&&!allowed){const o=req.headers.origin;if(o&&o!=="http://"+req.headers.host&&o!=="https://"+req.headers.host)return send(res,403,{error:"Origin غير مسموح."})}
     if(m==="GET"&&(p==="/"||p==="/index.html")){res.writeHead(200,{...baseHeaders,"Content-Type":"text/html; charset=utf-8"});return res.end(fs.readFileSync(path.join(ROOT,"index.html")))}
     if(m==="GET"&&p==="/api/health")return send(res,200,state());
+    const ex=p.match(/^\/examples\/([a-z0-9-]+\.(html|json))$/);
+    if(m==="GET"&&ex){const f=path.join(ROOT,"examples",ex[1]);if(!fs.existsSync(f))return send(res,404,{error:"مش موجود."});
+      res.writeHead(200,{...baseHeaders,"Content-Type":ex[2]==="json"?"application/json; charset=utf-8":"text/plain; charset=utf-8"});return res.end(fs.readFileSync(f))}
+    if(m==="GET"&&p==="/api/photo"){const u=new URL(req.url,"http://x");const r=await photo(u.searchParams.get("q"),+u.searchParams.get("w")||800);return send(res,r.code,r.body)}
     if(p==="/api/settings"){
       if(m==="GET")return send(res,200,readSettings());
       if(m==="POST"){const b=await readBody(req);const o=Object.assign(readSettings(),cleanSettings(b));
@@ -162,7 +186,7 @@ const server=http.createServer(async(req,res)=>{
     if(m==="POST"&&p==="/api/factory/start"){const b=await readBody(req),g=typeof b.goal==="string"?b.goal.trim():"";
       if(!g||g.length>2000)return send(res,400,{error:"اكتب وصف الموقع (حتى 2000 حرف)."});return out(res,await factoryStart(g))}
     if(m==="GET"&&p==="/api/factory/state"){const run=qs.get("run")||"";if(!/^[^/\\?#&\s]{1,160}$/.test(run)||run.includes(".."))return send(res,400,{error:"معرّف مهمة غير صالح."});return out(res,await factoryState(run))}
-    const hp=p.match(/^\/api\/hands\/(browser|google|computer|confirm)$/);
+    const hp=p.match(/^\/api\/hands\/(browser|google|computer|phone|confirm)$/);
     if(hp&&m==="POST"){const b=await readBody(req);return out(res,await hands.handle(hp[1],b,String(req.headers.host||"").split(":")[1]||"8787"))}
     if(m==="GET"&&(p==="/api/google/connect"||p==="/api/google/callback")){const r=p.endsWith("connect")?hands.gConnect(req.headers.host):await hands.gCallback(qs);
       if(r.redirect){res.writeHead(302,{...baseHeaders,Location:r.redirect});return res.end()}
