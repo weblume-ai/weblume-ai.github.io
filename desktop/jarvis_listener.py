@@ -118,6 +118,50 @@ CLOSE = {"google": "chrome", "google chrome": "chrome", "edge": "msedge", "micro
 KEEP = {"explorer", "python", "pythonw", "node", "powershell", "cmd", "system", "svchost", "winlogon", "csrss", "dwm"}  # never closed by voice
 
 
+VK = {"ctrl": 0x11, "control": 0x11, "alt": 0x12, "shift": 0x10, "win": 0x5B, "windows": 0x5B, "enter": 0x0D, "return": 0x0D,
+      "tab": 0x09, "esc": 0x1B, "escape": 0x1B, "backspace": 0x08, "space": 0x20, "up": 0x26, "down": 0x28, "left": 0x25,
+      "right": 0x27, "pageup": 0x21, "pagedown": 0x22, "home": 0x24, "end": 0x23, "f5": 0x74, "f11": 0x7A, "printscreen": 0x2C}
+VK.update({c: ord(c.upper()) for c in "abcdefghijklmnopqrstuvwxyz0123456789"})  # no "delete": Jarvis never deletes
+MESSAGING = re.compile(r"whatsapp|discord|telegram|messenger|gmail|outlook|instagram|slack|teams|signal|mail", re.I)
+SECRETS = re.compile(r"password|passwd|باسورد|كلمة (السر|المرور)|\b(?:\d[ -]?){13,19}\b|cvv", re.I)
+
+
+def foreground_title():
+    u = ctypes.windll.user32
+    buf = ctypes.create_unicode_buffer(300)
+    u.GetWindowTextW(u.GetForegroundWindow(), buf, 300)
+    return buf.value
+
+
+def keys(combo):
+    """Press a shortcut like "ctrl+t", "alt+tab" or "enter"."""
+    parts = [VK.get(k.strip().lower()) for k in combo.replace(" ", "").split("+")]
+    if not parts or None in parts:
+        return False
+    k = ctypes.windll.user32.keybd_event
+    for vk in parts:
+        k(vk, 0, 0, 0)
+    for vk in reversed(parts):
+        k(vk, 0, 2, 0)
+    return True
+
+
+def type_text(text):
+    """Types by pasting, so Arabic works in any app (it replaces what's on the clipboard)."""
+    subprocess.run(["powershell", "-NoProfile", "-Command", "Set-Clipboard -Value $env:JV_TXT"], env={**os.environ, "JV_TXT": text},
+                   timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+    time.sleep(0.1)
+    keys("ctrl+v")
+
+
+def first_video(query):
+    """The first YouTube result's id, read from the public results page (no key needed)."""
+    req = urllib.request.Request("https://www.youtube.com/results?search_query=" + urllib.parse.quote(query),
+                                 headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en"})
+    m = re.search(r'"videoId":"([\w-]{11})"', urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "ignore"))
+    return m.group(1) if m else None
+
+
 def browse(url):
     """Websites open in Chrome (his browser), not the Windows default (Edge)."""
     if CHROME.exists():
@@ -165,9 +209,49 @@ def find_app(name):
     return best[1] if best else None
 
 
-def act(action, arg):
-    """Run one Jarvis action; returns what happened, for Jarvis to say."""
-    arg = str(arg or "").strip()[:200]
+def act(action, arg, confirmed=False):
+    """Run one Jarvis action; returns what happened, for Jarvis to say,
+    or ("CONFIRM", label) when it waits for his click on yes (sending in a chat, shutting down)."""
+    arg = str(arg or "").strip()[:500]
+    if action == "play_youtube":
+        vid = first_video(arg)
+        if not vid:
+            return f"I couldn't find {arg} on YouTube."
+        browse(f"https://www.youtube.com/watch?v={vid}")
+        return f"Playing {arg} on YouTube."
+    if action == "type_text":
+        if SECRETS.search(arg):
+            return "I don't type passwords or card numbers, sir. Please type those yourself."
+        type_text(arg)
+        return "Typed it."
+    if action == "press_keys":
+        combo = arg.lower().replace(" ", "")
+        if "enter" in combo.split("+") and MESSAGING.search(foreground_title()) and not confirmed:
+            return ("CONFIRM", f"Press Enter (send) in {foreground_title()[:60]}")
+        return "Done." if keys(combo) else f"I don't know the key {arg}."
+    if action == "window":
+        combo = {"minimize": "win+down", "maximize": "win+up", "switch": "alt+tab", "show_desktop": "win+d",
+                 "close": "alt+f4", "new_tab": "ctrl+t", "close_tab": "ctrl+w", "scroll_down": "pagedown", "scroll_up": "pageup",
+                 "back": "alt+left", "refresh": "f5", "fullscreen": "f11"}.get(arg.lower())
+        if not combo:
+            return "Unknown window action."
+        if combo == "alt+f4":  # same as the X: unsaved work still asks
+            VK["f4"] = 0x73
+        keys(combo)
+        return "Done."
+    if action == "system":
+        what = arg.lower()
+        if what == "lock":
+            ctypes.windll.user32.LockWorkStation()
+            return "Locked."
+        cmd = {"sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], "restart": ["shutdown", "/r", "/t", "5"],
+               "shutdown": ["shutdown", "/s", "/t", "5"]}.get(what)
+        if not cmd:
+            return "Unknown system action."
+        if not confirmed:
+            return ("CONFIRM", what.capitalize() + " the PC")
+        subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+        return f"{what.capitalize()} in a few seconds, sir."
     if action == "open_app":
         key = arg.lower()
         if key in SITES:
@@ -244,12 +328,16 @@ def voice_server():
             if self.path == "/do":  # only the app's server has the token
                 if not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), TOKEN):
                     return self.send_error(403)
-                try:
-                    msg = act(str(body.get("action", "")), body.get("arg"))
+                try:  # "confirmed" only arrives after his click on yes (the page adds it; the model can't)
+                    msg = act(str(body.get("action", "")), body.get("arg"), confirmed=body.get("confirmed") is True)
                 except Exception as e:
                     msg = f"That didn't work: {e}"
                 log(f"do {body.get('action')} {body.get('arg')!r}: {msg}")
-                out = json.dumps({"result": msg}).encode()
+                if isinstance(msg, tuple):
+                    out = json.dumps({"result": "Waiting for his yes on the screen.",
+                                      "confirm": {"action": body.get("action"), "arg": body.get("arg"), "label": msg[1]}}).encode()
+                else:
+                    out = json.dumps({"result": msg}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
