@@ -142,6 +142,7 @@ function forgetMemory(texts){
   if(!Array.isArray(texts)||!texts.length||texts.length>MAX_NOTES||!texts.every(t=>typeof t==="string"))return{code:400,body:{error:"ابعت قايمة بنصوص الملاحظات اللي هتتمسح."}};
   const drop=new Set(texts.map(t=>t.trim())),notes=readMemory(),keep=notes.filter(n=>!drop.has(n.text));
   fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:keep},null,1),{mode:0o600});return{code:200,body:{removed:notes.length-keep.length,left:keep.length}}}
+let jvSeen=0,jvWant=false;
 const server=http.createServer(async(req,res)=>{
   try{
     const p=new URL(req.url,"http://x").pathname,m=req.method;
@@ -196,6 +197,10 @@ const server=http.createServer(async(req,res)=>{
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
       return send(res,405,{error:"Method غير مسموح."})}
+    // two claps / "Hey Jarvis" (desktop/jarvis_listener.py): an open page picks the request up on its next poll; with no page, the listener opens a window
+    if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();const o=jvWant;jvWant=false;return send(res,200,{open:o})}
+      if(m==="POST"){const page=Date.now()-jvSeen<4000;if(page)jvWant=true;return send(res,200,{page})}
+      return send(res,405,{error:"Method غير مسموح."})}
     send(res,404,{error:"مش موجود."});
   }catch(e){send(res,e.code&&e.code>=400&&e.code<500?e.code:500,{error:e.code?e.message:"خطأ داخلي في السيرفر."})}
 });
@@ -203,7 +208,9 @@ const deploy=require("./deploy.js");
 module.exports={server,state};
 if(require.main===module){
   const port=+process.env.PORT||8787,host=process.env.HOST||"127.0.0.1";
-  const openBrowser=()=>{if(process.env.OPEN_BROWSER!=="1")return;const u="http://127.0.0.1:"+port,cp=require("child_process");try{process.platform==="win32"?cp.exec('start "" "'+u+'"'):cp.exec((process.platform==="darwin"?"open ":"xdg-open ")+u)}catch(e){}};
+  // APP_WINDOW=1 (the desktop shortcuts): a Chrome app window (same keys and chats as your Chrome; Edge if no Chrome), no tabs or address bar; APP_PATH="/?jarvis" opens straight into Jarvis
+  const openBrowser=()=>{if(process.env.OPEN_BROWSER!=="1")return;const ap=/^\/[\w?=&#-]*$/.test(process.env.APP_PATH||"")?process.env.APP_PATH:"",u="http://127.0.0.1:"+port+ap,cp=require("child_process");
+    try{if(process.platform==="win32"&&process.env.APP_WINDOW==="1")cp.exec('start "" chrome --app="'+u+'" --window-size=1280,860',e=>{if(e)cp.exec('start "" msedge --app="'+u+'" --window-size=1280,860',e2=>{if(e2)cp.exec('start "" "'+u+'"')})});else process.platform==="win32"?cp.exec('start "" "'+u+'"'):cp.exec((process.platform==="darwin"?"open ":"xdg-open ")+u)}catch(e){}};
   server.on("error",e=>{if(e&&e.code==="EADDRINUSE"){console.log("\n  Weblume is already running in another window. Opening http://127.0.0.1:"+port+" ...\n  You can close this window.\n");openBrowser()}else{console.error("\n  Server error: "+(e&&e.message)+"\n");process.exitCode=1}});
   server.listen(port,host,()=>{const s=state();console.log("Weblume: http://"+host+":"+port);openBrowser();console.log(" images:",s.providers.image.configured?"configured":"not configured"," video:",s.providers.video.configured?"configured":"not configured",s.providers.video.errors.join("; "))});
 }

@@ -198,7 +198,7 @@ input.sw-t:checked{background:var(--acc)}input.sw-t:checked:before{transform:tra
   <button id="t-set"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg><span>الإعدادات</span></button>
 </nav>
 <main>
-  <div class="top"><span class="brand" aria-label="Phainora AI">Phai<b>nora</b><small>AI</small></span><span class="sp"></span><div class="sw"><button type="button" class="pill sw-btn" id="sw-btn" aria-haspopup="true" aria-expanded="false" title="بدّل المصدر أو الموديل"><i class="dot"></i><span id="mdl"></span><span aria-hidden="true">▾</span></button><div class="sw-menu" id="sw-menu" hidden></div></div></div>
+  <div class="top"><span class="brand" aria-label="Phainora AI">Phai<b>nora</b><small>AI</small></span><span class="sp"></span><button type="button" class="pill" id="jv-btn" title="Jarvis: كلّمه بصوتك (Ctrl+J)">🎙 Jarvis</button><div class="sw"><button type="button" class="pill sw-btn" id="sw-btn" aria-haspopup="true" aria-expanded="false" title="بدّل المصدر أو الموديل"><i class="dot"></i><span id="mdl"></span><span aria-hidden="true">▾</span></button><div class="sw-menu" id="sw-menu" hidden></div></div></div>
   <section id="chat" class="on">
     <div id="log"></div>
     <form id="f"><button type="button" id="att" aria-label="إرفاق ملف" title="إرفاق ملف (HTML أو CSS أو JS أو أي كود) عشان يتعدّل">📎</button><input type="file" id="attf" hidden multiple accept=".html,.htm,.css,.js,.jsx,.ts,.tsx,.py,.php,.java,.cs,.go,.json,.md,.txt,.vue,.svelte,.sql,.xml,.yml,.yaml,.ejs"><textarea id="msg" rows="1" placeholder="اكتب طلبك… أو اضغط 📎 وأرفق ملف عشان أعدّله"></textarea><button class="pri" id="go">إرسال</button></form>
@@ -1795,7 +1795,8 @@ function askConfirm(text,signal){return new Promise(done=>{const d=add("chip err
   row.style.cssText="display:flex;gap:8px;justify-content:center;margin-top:8px";
   const fin=v=>{if(!row.isConnected)return;row.remove();d.textContent=(v?"✅ وافقت: ":"✖ رفضت: ")+text;done(v)};
   for(const[t,v]of[["✅ موافق",true],["✖ لا",false]]){const b=document.createElement("button");b.type="button";b.textContent=t;b.onclick=()=>fin(v);row.appendChild(b)}
-  d.appendChild(row);if(signal)signal.addEventListener("abort",()=>fin(false),{once:true});log.scrollTop=log.scrollHeight;row.firstChild.focus()})}
+  d.appendChild(row);if(signal)signal.addEventListener("abort",()=>fin(false),{once:true});log.scrollTop=log.scrollHeight;row.firstChild.focus();
+  dispatchEvent(new CustomEvent("wl-confirm",{detail:{text,answer:fin}}))})} // Jarvis mirrors the two buttons; only a click answers, never the model
 // The factory's finished site, shown in a pane beside the chat (the factory serves it sandboxed).
 function openSitePane(url){let p=document.getElementById("sitepane");
   if(!p){p=document.createElement("aside");p.id="sitepane";p.innerHTML='<div class="sp-bar"><b>الموقع</b><a target="_blank" rel="noopener">افتح في تبويب</a><button type="button" aria-label="اقفل المعاينة">✕</button></div><iframe title="معاينة الموقع" sandbox="allow-scripts allow-forms allow-popups"></iframe>';
@@ -1813,9 +1814,9 @@ async function send(){
       if(ev.type==="live"){if(looksJson(ev.text)){wk.phase("بيجهّز بيانات الموقع");return}const k=ev.text.search(/```|<!doctype|<html[\s>]/i);const prose=(k<0?ev.text:ev.text.slice(0,k)).replace(/\n?📄[^\n]*\s*$/,"").trim();if(k>=0){wk.phase("بيكتب الكود");wk.code(ev.text.slice(k).replace(/^```[^\n]*\n?/,"").replace(/\n?```[\s\S]*$/,""))}else wk.phase("بيكتب الرد");if(prose){const nb=log.scrollHeight-log.scrollTop-log.clientHeight<80;if(!live)live=add("a","");if(live.textContent!==prose)live.textContent=prose;if(nb)log.scrollTop=log.scrollHeight}return}
       if(ev.type==="site"){if(live){live.remove();live=null}wk.step("✅ الموقع اتبنى وجاهز تحت");renderMsg(add("a",""),"```html "+siteFile(ev.name)+"\n"+ev.html+"\n```");return}
       if(ev.type==="factory"){wk.step("✅ الموقع جاهز واتفتح جنب الشات");const m_=add("a","🌐 الموقع جاهز: "),a_=document.createElement("a");a_.href=ev.url;a_.target="_blank";a_.rel="noopener";a_.textContent=ev.url;a_.dir="ltr";m_.appendChild(a_);openSitePane(ev.url);return}
-      if(ev.type==="text"){if(live){renderMsg(live,ev.text);live=null}else if(!looksJson(ev.text))renderMsg(add("a",""),ev.text);return}
-      if(ev.type==="step"){if(ev.phase)wk.phase(ev.phase);wk.step(ev.text);return}
-      if(ev.type==="hand"){wk.step(ev.text);add("chip",ev.text).title=ev.text;return}
+      if(ev.type==="text"){dispatchEvent(new CustomEvent("wl-text",{detail:ev.text}));if(live){renderMsg(live,ev.text);live=null}else if(!looksJson(ev.text))renderMsg(add("a",""),ev.text);return}
+      if(ev.type==="step"){if(ev.phase)wk.phase(ev.phase);wk.step(ev.text);dispatchEvent(new CustomEvent("wl-step",{detail:ev.text}));return}
+      if(ev.type==="hand"){wk.step(ev.text);dispatchEvent(new CustomEvent("wl-step",{detail:ev.text}));add("chip",ev.text).title=ev.text;return}
       if(ev.type==="design"){wk.phase("بيصمم");wk.step("🎨 تصميم حر: اتجاه «"+ev.dir.n+"» · "+ev.dir.fonts);return}
       if(ev.type==="cont"){wk.step("✂️ الرد اتقطع، بيكمّل الكود");return}
       if(ev.type==="retry"){live=null;wk.step("↻ الموديل رجّع رد فاضي، بيحاول تاني من غير أدوات");return}
@@ -1823,7 +1824,7 @@ async function send(){
       if(ev.type==="tool"){if(live&&looksJson(live.textContent)){live.remove()}live=null;if(ev.name==="build_site"){wk.phase("بيبني الموقع");wk.step("🏗 بيبني موقع «"+String(ev.args.name||"")+"» بقالب Phainora")}else if(ev.name==="load_skill"){wk.phase("بيقرا سكيل");wk.step("📘 استخدم سكيل: "+ev.args.name)}else if(ev.name==="web_search"){wk.phase("بيدوّر على النت");wk.step("🔎 بيدوّر: "+String(ev.args.query||""))}else if(ev.name==="build_website"){wk.phase("المصنع بيبني الموقع")}else if(ev.name==="remember"){wk.phase("بيحفظ في الذاكرة")}else if(ev.name==="forget"){wk.phase("بيمسح من الذاكرة")}else if(ev.name==="deploy_site"){wk.phase("بيرفع على Cloudflare")}else if(ev.name==="browser"||ev.name==="google"||ev.name==="computer"){wk.phase({browser:"بيستخدم كروم",google:"بيستخدم جوجل",computer:"بيستخدم الجهاز"}[ev.name])}else{wk.phase("بيستخدم "+ev.name);wk.step("🔧 "+ev.name+" "+JSON.stringify(ev.args).slice(0,200))}}
     };
   let chain=[cfg];const cur=provOf(cfg);
-  const task=cfg.smart?classifyTask(text):"";const routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];
+  const jvEl=document.getElementById("jv"),task=(cfg.smart||(jvEl&&!jvEl.hidden))?classifyTask(text):""; // Jarvis always routes to the best API that has a keyconst routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];
   if(routed.length){wk.step("📍 توزيع ذكي: الطلب ده «"+ROUTES[task].label+"» ← "+pLabel(routed[0]));chain=routed.slice()}
   if(routed.length){if(cfg.fb!==false){KEY_PROVS.filter(p=>usable(p)&&!chain.some(c=>provOf(c)===p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));if(cfg.localChat===true)chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
   else{if(isOR(cfg)&&cfg.model!==OR_BACKUP)chain.push(Object.assign({},cfg,{model:OR_BACKUP,fast:false}));
@@ -1846,7 +1847,7 @@ async function send(){
       }
     }
   }catch(e){history.length=mark;if(!$("#msg").value){$("#msg").value=text;fit()}add("chip err",(e.message.startsWith("⏹")?"":"❌ ")+e.message)}
-  finally{saveChat();clearInterval(tick);wk.done(secs());busy=false;ctrl=null;$("#go").textContent="إرسال";$("#msg").focus()}
+  finally{saveChat();clearInterval(tick);wk.done(secs());busy=false;ctrl=null;$("#go").textContent="إرسال";$("#msg").focus();dispatchEvent(new Event("wl-done"))}
 }
 
 /* saved chats */
@@ -1950,6 +1951,99 @@ $("#t-new").onclick=()=>{if(busy&&ctrl)ctrl.abort();history.length=0;chatId=null
 setModel();checkModel();health();{const all=chats();if(all.length){chatId=all[0].id;history.push(...all[0].history);renderChat(history)}else welcome()}
 $("#f").onsubmit=e=>{e.preventDefault();send()};
 $("#msg").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!busy)send()}};
+
+/* Jarvis: a full-screen voice mode on top of the same chat, so it has the same tools, approvals, memory and models.
+   Hearing and speaking use the browser's speech engines (best in Edge: Microsoft's Egyptian voice). Wake word: «يا جارفيس». */
+(()=>{
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition,WAKE=/(يا\s*)?(جارف[يى]?س|جرفيس|جارفز|jarvis)[،,\s]*/i;
+const css=document.createElement("style");css.textContent=`
+#jv{--jb:#2f7bff;--jbl:#8cc4ff;position:fixed;inset:0;z-index:999;background:radial-gradient(circle at 50% 42%,#061533,#03060d 72%);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:70px 20px 100px;text-align:center}
+#jv[hidden]{display:none}
+#jv .jv-brand{position:absolute;top:18px;inset-inline-start:22px;font-weight:700;font-size:18px}#jv .jv-brand b{color:var(--jbl)}
+#jv-orb{display:block;max-width:90vw}
+.jv-state{color:var(--mute);font-size:15px;margin:0}
+.jv-you{font-size:21px;min-height:1.5em;max-width:760px;margin:0}
+.jv-say{font-size:17px;color:#cfe4ff;min-height:2.6em;max-width:760px;max-height:26vh;overflow:auto;margin:0}
+.jv-ask{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:#0a1d3d;border:1px solid var(--jb);border-radius:14px;padding:10px 14px;max-width:760px}
+.jv-ask[hidden]{display:none}
+.jv-ask button{border-radius:999px;padding:6px 16px;border:1px solid var(--line);background:var(--surface);color:#fff;font:inherit;cursor:pointer}.jv-ask button.pri{background:var(--jb);border-color:var(--jb)}
+.jv-bar{position:absolute;bottom:22px;display:flex;gap:8px;width:min(640px,calc(100% - 32px))}
+#jv-type{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:999px;color:#fff;padding:10px 16px;font:inherit}
+.jv-bar button{flex:none;width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:#fff;font-size:18px;cursor:pointer}
+#jv-mic.on{background:var(--jb);border-color:var(--jb)}
+@media (prefers-reduced-motion:reduce){#jv-orb{opacity:.9}}`;document.head.appendChild(css);
+const jv=document.createElement("div");jv.id="jv";jv.hidden=true;jv.setAttribute("role","dialog");jv.setAttribute("aria-label","Jarvis");
+jv.innerHTML='<span class="jv-brand">Phai<b>nora</b> · Jarvis</span><canvas id="jv-orb" aria-hidden="true"></canvas><p class="jv-state" id="jv-state" aria-live="polite"></p><p class="jv-you" id="jv-you"></p><p class="jv-say" id="jv-say" aria-live="polite"></p>'
+  +'<div class="jv-ask" id="jv-ask" hidden><span></span><button type="button" class="pri" data-a="1">✅ موافق</button><button type="button" data-a="0">✖ لا</button></div>'
+  +'<div class="jv-bar"><button type="button" id="jv-mic" aria-label="الميكروفون" aria-pressed="false">🎙</button><input id="jv-type" placeholder="اتكلم أو اكتب هنا…" aria-label="اكتب لـ Jarvis"><button type="button" id="jv-x" aria-label="اقفل Jarvis">✕</button></div>';
+document.body.appendChild(jv);
+const S={idle:"قول «يا جارفيس» وبعدها طلبك",listen:"سامعك…",think:"بيشتغل…",speak:"بيتكلم…",ask:"محتاج موافقتك",off:"الميكروفون مقفول، اكتب تحت أو دوس 🎙",nosr:"المتصفح ده مش بيدعم السمع. افتح البرنامج من الأيقونة (Edge) أو اكتب تحت."};
+let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null;
+const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
+
+// the voice: Microsoft's Egyptian voice when the system has it, else any Arabic voice
+let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/ar-EG/i.test(x.lang)&&/natural|online/i.test(x.name))||v.find(x=>/ar-EG/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang))||null};
+speechSynthesis.onvoiceschanged=pickVoice;pickVoice();
+// code and links are read from the screen, not aloud
+const clean=t=>String(t||"").replace(/```[\s\S]*?```/g," الكود قدامك في الشات. ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
+function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();speechSynthesis.cancel();setMode("speak");
+  const parts=(t.match(/[^.!؟?\n]{1,200}[.!؟?]?/g)||[t]).slice(0,8);
+  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"ar-EG";if(voice)u.voice=voice;u.rate=1.03;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
+// after it answers it keeps listening for a follow-up for a few seconds without the wake word
+function done(){awake=Date.now()+9000;setMode(micOn?"idle":"off");startRec()}
+
+function startRec(){if(!SR||!micOn||rec||jv.hidden||mode==="speak"||mode==="think")return;
+  rec=new SR();rec.lang="ar-EG";rec.continuous=true;rec.interimResults=true;
+  rec.onresult=e=>{let fin="",tmp="";for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];r.isFinal?fin+=r[0].transcript:tmp+=r[0].transcript}
+    const open=Date.now()<awake;
+    if(tmp&&(open||WAKE.test(tmp))){$("#jv-you").textContent=tmp.replace(WAKE,"");if(mode==="idle")setMode("listen")}
+    fin=fin.trim();if(!fin||!(open||WAKE.test(fin)))return;
+    const q=fin.replace(WAKE,"").trim();if(!q){awake=Date.now()+9000;say("أيوه، سامعك.");return}ask(q)};
+  rec.onend=()=>{rec=null;if(micOn&&!jv.hidden&&mode!=="speak"&&mode!=="think")setTimeout(startRec,300)};
+  rec.onerror=e=>{if(/not-allowed|service-not-allowed/.test(e.error)){toggleMic(false);$("#jv-say").textContent="اسمح للميكروفون (علامة القفل فوق) أو اكتب تحت."}};
+  try{rec.start()}catch(e){rec=null}}
+function stopRec(){const r=rec;rec=null;if(r){r.onend=null;try{r.abort()}catch(e){}}}
+async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("#jv-mic").setAttribute("aria-pressed",on);
+  if(!on){stopRec();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;an=null}setMode("off");return}
+  if(!SR){setMode("nosr");return}
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const ac=new AudioContext();an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(stream).connect(an)}catch(e){toggleMic(false);$("#jv-say").textContent="مفيش إذن للميكروفون. اسمح بيه أو اكتب تحت.";return}
+  setMode("idle");startRec()}
+
+// a request goes into the normal chat; the spoken answer is the chat's final text
+function ask(q){if(busy){say("لسه شغال على اللي قبله، ثانية واحدة.");return}
+  stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");$("#msg").value=q;send()}
+addEventListener("wl-text",e=>{reply=e.detail});
+addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
+addEventListener("wl-done",()=>{if(jv.hidden)return;$("#jv-ask").hidden=true;answer=null;const r=reply;reply="";r?say(r):done()});
+// risky steps: the same موافق/لا as the chat, shown big; only a click answers (a voice "yes" could come from anyone in the room)
+addEventListener("wl-confirm",e=>{if(jv.hidden)return;answer=e.detail.answer;const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+e.detail.text;b.hidden=false;setMode("ask");say("محتاج موافقتك قبل ما أكمل. دوس موافق أو لا.",()=>setMode("ask"));b.querySelector(".pri").focus()});
+$("#jv-ask").addEventListener("click",e=>{const b=e.target.closest("button");if(!b||!answer)return;answer(b.dataset.a==="1");answer=null;$("#jv-ask").hidden=true;setMode("think")});
+
+// the orb: a glowing blue core, rings and drifting sparks; it swells with your voice and pulses while it talks
+const cv=$("#jv-orb"),cx=cv.getContext("2d"),buf=new Uint8Array(512);let t=0,size=0;
+const dots=Array.from({length:150},()=>({a:Math.random()*6.283,r:Math.random(),s:.3+Math.random(),z:Math.random()}));
+function fitOrb(){size=Math.min(innerWidth*.9,innerHeight*.5);const d=devicePixelRatio||1;cv.style.width=cv.style.height=size+"px";cv.width=cv.height=size*d;cx.setTransform(d,0,0,d,0,0)}
+const still=matchMedia("(prefers-reduced-motion: reduce)").matches;
+function draw(){if(jv.hidden)return;t+=1/60;
+  if(an){an.getByteTimeDomainData(buf);let m=0;for(const v of buf)m=Math.max(m,Math.abs(v-128));level=level*.7+m/128*.3}
+  const goal=mode==="listen"?.12+level*1.8:mode==="speak"?.3+Math.abs(Math.sin(t*8))*.28:mode==="think"?.22+Math.sin(t*3)*.08:.08+Math.sin(t*1.4)*.04;
+  pulse+=(goal-pulse)*.15;const c=size/2,R=size*.2*(1+pulse*.35),spin=still?0:mode==="think"?2:.4;
+  cx.clearRect(0,0,size,size);
+  let g=cx.createRadialGradient(c,c,R*.3,c,c,R*2.3);g.addColorStop(0,"rgba(70,150,255,.5)");g.addColorStop(.5,"rgba(30,100,230,.15)");g.addColorStop(1,"rgba(30,100,230,0)");cx.fillStyle=g;cx.fillRect(0,0,size,size);
+  cx.lineWidth=1.4;for(let k=0;k<3;k++){cx.strokeStyle="rgba(255,255,255,"+(.22-k*.05)+")";cx.beginPath();cx.ellipse(c,c,R*(1.45+k*.3)*(1+pulse*.2),R*(.42+k*.14),t*spin*(k%2?-.5:.35)+k,0,6.283);cx.stroke()}
+  g=cx.createRadialGradient(c-R*.35,c-R*.35,R*.08,c,c,R);g.addColorStop(0,"#ffffff");g.addColorStop(.22,"#7dbcff");g.addColorStop(.68,"#1554c8");g.addColorStop(1,"#020b26");cx.fillStyle=g;cx.beginPath();cx.arc(c,c,R,0,6.283);cx.fill();
+  for(const d of dots){d.a+=.003*d.s*(spin+.2)*(1+pulse*2);const rr=R*(1.3+d.r*.95+pulse*.5*d.z);cx.fillStyle="rgba("+(110+d.z*130|0)+","+(170+d.z*85|0)+",255,"+(.25+d.z*.6)+")";cx.beginPath();cx.arc(c+Math.cos(d.a)*rr,c+Math.sin(d.a)*rr*.9,.8+d.z*1.8,0,6.283);cx.fill()}
+  requestAnimationFrame(draw)}
+
+function open_(){jv.hidden=false;fitOrb();setMode(SR?"off":"nosr");requestAnimationFrame(draw);$("#jv-type").focus();if(SR)toggleMic(true)}
+function close_(){jv.hidden=true;toggleMic(false);speechSynthesis.cancel();$("#jv-ask").hidden=true}
+$("#jv-btn").onclick=open_;$("#jv-x").onclick=close_;$("#jv-mic").onclick=()=>toggleMic(!micOn);
+$("#jv-type").onkeydown=e=>{if(e.key==="Enter"&&e.target.value.trim()){const q=e.target.value.trim();e.target.value="";speechSynthesis.cancel();ask(q)}};
+addEventListener("keydown",e=>{if(e.ctrlKey&&(e.key==="j"||e.key==="J"||e.code==="KeyJ")){e.preventDefault();jv.hidden?open_():close_()}else if(e.key==="Escape"&&!jv.hidden)close_()});
+addEventListener("resize",()=>{if(!jv.hidden)fitOrb()});
+if(/[?&#]jarvis\b/.test(location.search+location.hash))open_(); // the desktop shortcut opens straight into Jarvis
+if(VIA_SERVER)setInterval(()=>fetch("/api/jarvis").then(r=>r.json()).then(j=>{if(j.open){open_();try{window.focus()}catch(e){}}}).catch(()=>{}),1500); // two claps / "Hey Jarvis"
+})();
 </script>
 </body>
 </html>

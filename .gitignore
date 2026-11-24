@@ -10,3 +10,7 @@ weblume-memory.json
 google-client.json
 google-token.json
 weblume-hands.json
+
+# Jarvis listener env and the big model files
+desktop/.venv/
+training/*.gguf
