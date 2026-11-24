@@ -10,6 +10,8 @@ drive.mount('/content/drive')
 D = '/content/drive/MyDrive/weblume_model'
 LORA = D + '/weblume-lora.gguf'
 assert os.path.exists(LORA), 'weblume-lora.gguf not found in Drive/weblume_model'
+OUT = os.environ.get('WEBLUME_OUT', D)  # another Drive folder when weblume_model's owner has no room for 4.7 GB
+os.makedirs(OUT, exist_ok=True)
 W = '/content/w'; os.makedirs(W, exist_ok=True); os.chdir(W)
 
 # 1) build llama.cpp tools
@@ -39,5 +41,5 @@ open('p.txt', 'w').write(p)
 subprocess.run(f'{BIN}llama-completion -m weblume.gguf -f p.txt -n 150 --temp 0.3 2>/dev/null', shell=True)
 
 # 5) save to Drive
-sh(f'cp weblume.gguf "{D}/weblume.gguf"')
-print('\nDONE ->', D + '/weblume.gguf', round(os.path.getsize(D + '/weblume.gguf') / 1e9, 2), 'GB')
+sh(f'cp weblume.gguf "{OUT}/weblume.gguf"')
+print('\nDONE ->', OUT + '/weblume.gguf', round(os.path.getsize(OUT + '/weblume.gguf') / 1e9, 2), 'GB')
