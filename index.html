@@ -1824,7 +1824,7 @@ async function send(){
       if(ev.type==="tool"){if(live&&looksJson(live.textContent)){live.remove()}live=null;if(ev.name==="build_site"){wk.phase("بيبني الموقع");wk.step("🏗 بيبني موقع «"+String(ev.args.name||"")+"» بقالب Phainora")}else if(ev.name==="load_skill"){wk.phase("بيقرا سكيل");wk.step("📘 استخدم سكيل: "+ev.args.name)}else if(ev.name==="web_search"){wk.phase("بيدوّر على النت");wk.step("🔎 بيدوّر: "+String(ev.args.query||""))}else if(ev.name==="build_website"){wk.phase("المصنع بيبني الموقع")}else if(ev.name==="remember"){wk.phase("بيحفظ في الذاكرة")}else if(ev.name==="forget"){wk.phase("بيمسح من الذاكرة")}else if(ev.name==="deploy_site"){wk.phase("بيرفع على Cloudflare")}else if(ev.name==="browser"||ev.name==="google"||ev.name==="computer"){wk.phase({browser:"بيستخدم كروم",google:"بيستخدم جوجل",computer:"بيستخدم الجهاز"}[ev.name])}else{wk.phase("بيستخدم "+ev.name);wk.step("🔧 "+ev.name+" "+JSON.stringify(ev.args).slice(0,200))}}
     };
   let chain=[cfg];const cur=provOf(cfg);
-  const jvEl=document.getElementById("jv"),task=(cfg.smart||(jvEl&&!jvEl.hidden))?classifyTask(text):""; // Jarvis always routes to the best API that has a keyconst routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];
+  const jvEl=document.getElementById("jv"),task=(cfg.smart||(jvEl&&!jvEl.hidden))?classifyTask(text):"";/* Jarvis always routes to the best API that has a key */const routed=task?ROUTES[task].list.filter(x=>usable(x[0])).map(x=>Object.assign({},cfg,{url:PROVIDERS[x[0]].url,model:routeModel(x[0],x[1]),key:cfg.keys[x[0]],fast:false})):[];
   if(routed.length){wk.step("📍 توزيع ذكي: الطلب ده «"+ROUTES[task].label+"» ← "+pLabel(routed[0]));chain=routed.slice()}
   if(routed.length){if(cfg.fb!==false){KEY_PROVS.filter(p=>usable(p)&&!chain.some(c=>provOf(c)===p)).forEach(p=>chain.push(Object.assign({},cfg,{url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p],fast:false})));if(cfg.localChat===true)chain.push(Object.assign({},cfg,PRESETS.local,{key:""}))}}
   else{if(isOR(cfg)&&cfg.model!==OR_BACKUP)chain.push(Object.assign({},cfg,{model:OR_BACKUP,fast:false}));
@@ -1955,7 +1955,7 @@ $("#msg").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(!
 /* Jarvis: a full-screen voice mode on top of the same chat, so it has the same tools, approvals, memory and models.
    Hearing and speaking use the browser's speech engines (best in Edge: Microsoft's Egyptian voice). Wake word: «يا جارفيس». */
 (()=>{
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition,WAKE=/(يا\s*)?(جارف[يى]?س|جرفيس|جارفز|jarvis)[،,\s]*/i;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition,WAKE=/(يا|hey|هاي)?\s*(جا?ر[فڤ][يى]?[سز]|jarvis)[\s،,.!؟?]*/i; // no g flag: WAKE.test() would keep lastIndex between calls
 const css=document.createElement("style");css.textContent=`
 #jv{--jb:#2f7bff;--jbl:#8cc4ff;position:fixed;inset:0;z-index:999;background:radial-gradient(circle at 50% 42%,#061533,#03060d 72%);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:70px 20px 100px;text-align:center}
 #jv[hidden]{display:none}
@@ -1981,14 +1981,14 @@ const S={idle:"قول «يا جارفيس» وبعدها طلبك",listen:"سا�
 let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null;
 const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
 
-// the voice: Microsoft's Egyptian voice when the system has it, else any Arabic voice
-let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/ar-EG/i.test(x.lang)&&/natural|online/i.test(x.name))||v.find(x=>/ar-EG/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang))||null};
+// the voice: a deep male "Jarvis" voice: Edge's natural Egyptian Shakir, else any natural Egyptian voice, else any Arabic voice
+let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/Shakir/i.test(x.name)&&/ar-EG/i.test(x.lang))||v.find(x=>/ar-EG/i.test(x.lang)&&/natural|online/i.test(x.name))||v.find(x=>/ar-EG/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang))||null};
 speechSynthesis.onvoiceschanged=pickVoice;pickVoice();
 // code and links are read from the screen, not aloud
 const clean=t=>String(t||"").replace(/```[\s\S]*?```/g," الكود قدامك في الشات. ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
 function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();speechSynthesis.cancel();setMode("speak");
   const parts=(t.match(/[^.!؟?\n]{1,200}[.!؟?]?/g)||[t]).slice(0,8);
-  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"ar-EG";if(voice)u.voice=voice;u.rate=1.03;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
+  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"ar-EG";if(voice)u.voice=voice;u.rate=1.0;u.pitch=0.85;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
 // after it answers it keeps listening for a follow-up for a few seconds without the wake word
 function done(){awake=Date.now()+9000;setMode(micOn?"idle":"off");startRec()}
 
@@ -2010,7 +2010,8 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
   setMode("idle");startRec()}
 
 // a request goes into the normal chat; the spoken answer is the chat's final text
-function ask(q){if(busy){say("لسه شغال على اللي قبله، ثانية واحدة.");return}
+function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("أيوه، سامعك.");return} // only its name: answer and wait
+  if(busy){say("لسه شغال على اللي قبله، ثانية واحدة.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");$("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
 addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
@@ -2042,7 +2043,7 @@ $("#jv-type").onkeydown=e=>{if(e.key==="Enter"&&e.target.value.trim()){const q=e
 addEventListener("keydown",e=>{if(e.ctrlKey&&(e.key==="j"||e.key==="J"||e.code==="KeyJ")){e.preventDefault();jv.hidden?open_():close_()}else if(e.key==="Escape"&&!jv.hidden)close_()});
 addEventListener("resize",()=>{if(!jv.hidden)fitOrb()});
 if(/[?&#]jarvis\b/.test(location.search+location.hash))open_(); // the desktop shortcut opens straight into Jarvis
-if(VIA_SERVER)setInterval(()=>fetch("/api/jarvis").then(r=>r.json()).then(j=>{if(j.open){open_();try{window.focus()}catch(e){}}}).catch(()=>{}),1500); // two claps / "Hey Jarvis"
+if(VIA_SERVER)setInterval(()=>fetch("/api/jarvis").then(r=>r.json()).then(j=>{if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;say("أيوه، سامعك.")}}).catch(()=>{}),1500); // two claps / "Hey Jarvis"
 })();
 </script>
 </body>

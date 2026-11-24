@@ -14,3 +14,4 @@ weblume-hands.json
 # Jarvis listener env and the big model files
 desktop/.venv/
 training/*.gguf
+desktop/jarvis_listener.log

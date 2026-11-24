@@ -158,7 +158,10 @@ const server=http.createServer(async(req,res)=>{
     if(m==="GET"&&p==="/api/photo"){const u=new URL(req.url,"http://x");const r=await photo(u.searchParams.get("q"),+u.searchParams.get("w")||800);return send(res,r.code,r.body)}
     if(p==="/api/settings"){
       if(m==="GET")return send(res,200,readSettings());
-      if(m==="POST"){const b=await readBody(req);const o=Object.assign(readSettings(),cleanSettings(b));
+      if(m==="POST"){const cur=readSettings(),n=cleanSettings(await readBody(req));
+        // a fresh browser (no keys yet, e.g. Jarvis in Edge) must not wipe the saved keys: an empty key replaces a saved one only when its settings are newer
+        if(n.keys){const newer=(n.kt||0)>(cur.kt||0),ks=Object.assign({},cur.keys);for(const[k,v]of Object.entries(n.keys))if(v||newer)ks[k]=v;n.keys=ks;if(!newer)n.kt=cur.kt}
+        const o=Object.assign(cur,n);
         fs.writeFileSync(SETTINGS_FILE(),JSON.stringify(o,null,1),{mode:0o600});return send(res,200,{ok:true})}
       return send(res,405,{error:"Method غير مسموح."})}
     const lm=p.match(/^\/api\/llm\/([a-z]+)\/(models|chat\/completions)$/);if(lm)return await relayLLM(req,res,lm[1],lm[2]);
