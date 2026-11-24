@@ -142,7 +142,7 @@ function forgetMemory(texts){
   if(!Array.isArray(texts)||!texts.length||texts.length>MAX_NOTES||!texts.every(t=>typeof t==="string"))return{code:400,body:{error:"ابعت قايمة بنصوص الملاحظات اللي هتتمسح."}};
   const drop=new Set(texts.map(t=>t.trim())),notes=readMemory(),keep=notes.filter(n=>!drop.has(n.text));
   fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:keep},null,1),{mode:0o600});return{code:200,body:{removed:notes.length-keep.length,left:keep.length}}}
-let jvSeen=0,jvWant=false,jvText=null,jvListen=0,jvEar=0;
+let jvSeen=0,jvWant=false,jvText=null,jvListen=0,jvEar=0,jvSay=null;
 // Jarvis's hands and eyes. The listener (127.0.0.1:8788, per-run token) does the clicking; the screen goes to Gemini only when he asks to look or click
 async function jvHand(action,arg,tok,confirmed=false){const w=await fetch("http://127.0.0.1:8788/do",{method:"POST",headers:{"Content-Type":"application/json","X-Jarvis-Token":tok},body:JSON.stringify({action,arg,confirmed}),signal:AbortSignal.timeout(20000)});
   if(!w.ok)throw new Error("The listener refused.");return w.json()}
@@ -242,15 +242,16 @@ const server=http.createServer(async(req,res)=>{
     // Jarvis's hands: open an app / site / folder, search, media keys. Run by the listener; the token file is out of a web page's reach
     // "confirmed" is set by the page only after his click on yes; the model's tool calls never carry it
     if(m==="POST"&&p==="/api/do"){const b=await readBody(req),action=String(b.action||""),arg=String(b.arg||"").slice(0,500),confirmed=b.confirmed===true;
-      if(!/^(open_app|close_app|open_website|search_google|search_youtube|play_youtube|open_folder|media|look|click|click_at|type_text|press_keys|window|system)$/.test(action))return send(res,400,{error:"Unknown action."});
+      if(!/^(open_app|close_app|open_website|search_google|search_youtube|play_youtube|open_folder|media|look|click|click_at|type_text|press_keys|window|system|add_reminder|list_reminders|cancel_reminder|weather)$/.test(action))return send(res,400,{error:"Unknown action."});
       let tok="";try{tok=fs.readFileSync(path.join(ROOT,"desktop",".jarvis-token"),"utf8").trim()}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}
       try{if(action==="look"||action==="click")return send(res,200,await jvEyes(action,arg,tok));
         return send(res,200,await jvHand(action,arg,tok,confirmed))}catch(e){return send(res,503,{error:e.message||"The Jarvis listener isn't running."})}}
     // the listener's ears (Whisper on the GPU): it asks here whether the page waits for speech, and posts what it heard to /api/jarvis
     if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen})}
     if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();if(qs.get("listen")==="1")jvListen=Date.now()+2500;
-        const o={open:jvWant,text:jvText,hear:Date.now()-jvEar<3000};jvWant=false;jvText=null;return send(res,200,o)}
-      if(m==="POST"){const b=await readBody(req);if(typeof b.text==="string"){jvText=b.text.trim().slice(0,1000);jvListen=0;return send(res,200,{ok:true})}
+        const o={open:jvWant,text:jvText,say:jvSay,hear:Date.now()-jvEar<3000};jvWant=false;jvText=null;jvSay=null;return send(res,200,o)}
+      if(m==="POST"){const b=await readBody(req);if(typeof b.say==="string"){jvSay=b.say.trim().slice(0,500);return send(res,200,{ok:true})} // a reminder
+        if(typeof b.text==="string"){jvText=b.text.trim().slice(0,1000);jvListen=0;return send(res,200,{ok:true})}
         const page=Date.now()-jvSeen<4000;if(page)jvWant=true;return send(res,200,{page})}
       return send(res,405,{error:"Method غير مسموح."})}
     send(res,404,{error:"مش موجود."});

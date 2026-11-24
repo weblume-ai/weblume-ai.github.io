@@ -17,3 +17,4 @@ training/*.gguf
 desktop/jarvis_listener.log
 desktop/voice-samples/
 desktop/.jarvis-token
+desktop/jarvis-reminders.json

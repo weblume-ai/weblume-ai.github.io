@@ -127,6 +127,86 @@ MESSAGING = re.compile(r"whatsapp|discord|telegram|messenger|gmail|outlook|insta
 SECRETS = re.compile(r"password|passwd|باسورد|كلمة (السر|المرور)|\b(?:\d[ -]?){13,19}\b|cvv", re.I)
 
 
+LAST_WINDOW = [0]  # the window he was in before Jarvis took focus: typing and keys go back there
+
+
+def track_window():
+    u = ctypes.windll.user32
+    h = u.GetForegroundWindow()
+    buf = ctypes.create_unicode_buffer(300)
+    u.GetWindowTextW(h, buf, 300)
+    if h and buf.value and "Phainora AI" not in buf.value and "Jarvis" not in buf.value:
+        LAST_WINDOW[0] = h
+
+
+def focus_back():
+    """Bring back his window (its selection stays) before typing into it."""
+    h = LAST_WINDOW[0]
+    if h and ctypes.windll.user32.IsWindow(h):
+        keys("alt")  # Windows lets a program take focus right after a key press
+        ctypes.windll.user32.SetForegroundWindow(h)
+        time.sleep(0.25)
+
+
+REMINDERS = Path(__file__).with_name("jarvis-reminders.json")
+
+
+def load_reminders():
+    try:
+        return json.loads(REMINDERS.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def save_reminders(rs):
+    REMINDERS.write_text(json.dumps(rs, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def say_now(text):
+    """Jarvis speaks without being asked (a reminder): opens the window if needed, the page says it."""
+    open_jarvis("reminder")
+    try:
+        req = urllib.request.Request(URL + "/api/jarvis", data=json.dumps({"say": text}).encode(), headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as e:
+        log(f"say failed: {e}")
+
+
+def reminder_loop():
+    """Checks every 15 s; a reminder that came due while the laptop was off is said on the next start."""
+    while True:
+        try:
+            rs, now, left = load_reminders(), time.time(), []
+            for r in rs:
+                if r["at"] <= now:
+                    log(f"reminder: {r['text']}")
+                    say_now(f"Sir, a reminder: {r['text']}")
+                    time.sleep(8)
+                else:
+                    left.append(r)
+            if len(left) != len(rs):
+                save_reminders(left)
+        except Exception as e:
+            log(f"reminders: {e}")
+        time.sleep(15)
+
+
+def weather(place):
+    """Open-Meteo, free and keyless; the place is only sent when he asks."""
+    g = json.load(urllib.request.urlopen("https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=" + urllib.parse.quote(place), timeout=10))
+    if not g.get("results"):
+        return f"I couldn't find {place}."
+    p = g["results"][0]
+    w = json.load(urllib.request.urlopen(f"https://api.open-meteo.com/v1/forecast?latitude={p['latitude']}&longitude={p['longitude']}"
+                                         "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
+                                         "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=auto", timeout=10))
+    c, d = w["current"], w["daily"]
+    sky = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "foggy", 48: "foggy", 51: "drizzle", 61: "light rain",
+           63: "rain", 65: "heavy rain", 80: "showers", 95: "thunderstorms"}.get(c["weather_code"], "mixed")
+    return (f"{p['name']}: {c['temperature_2m']}°C, feels like {c['apparent_temperature']}°C, {sky}, wind {c['wind_speed_10m']} km/h. "
+            f"Today {d['temperature_2m_min'][0]} to {d['temperature_2m_max'][0]}°C, rain chance {d['precipitation_probability_max'][0]}%.")
+
+
 def foreground_title():
     u = ctypes.windll.user32
     buf = ctypes.create_unicode_buffer(300)
@@ -223,9 +303,32 @@ def act(action, arg, confirmed=False):
     if action == "type_text":
         if SECRETS.search(arg):
             return "I don't type passwords or card numbers, sir. Please type those yourself."
+        focus_back()  # into his window, over what he selected
         type_text(arg)
         return "Typed it."
+    if action == "add_reminder":  # arg: "<unix seconds>|<what>"
+        at, _, what = arg.partition("|")
+        try:
+            at = float(at)
+        except ValueError:
+            return "I need the time as seconds."
+        if not what.strip() or at < time.time() - 60:
+            return "That time has already passed."
+        rs = load_reminders() + [{"at": at, "text": what.strip()[:300]}]
+        save_reminders(sorted(rs, key=lambda r: r["at"]))
+        return f"Reminder set for {time.strftime('%A %H:%M', time.localtime(at))}: {what.strip()}."
+    if action == "list_reminders":
+        rs = load_reminders()
+        return "No reminders." if not rs else " ".join(f"{time.strftime('%a %H:%M', time.localtime(r['at']))}: {r['text']}." for r in rs[:10])
+    if action == "cancel_reminder":
+        rs = load_reminders()
+        keep = [r for r in rs if arg.lower() not in r["text"].lower()] if arg else []
+        save_reminders(keep)
+        return f"Cancelled {len(rs) - len(keep)} reminder(s)."
+    if action == "weather":
+        return weather(arg or "Cairo")
     if action == "press_keys":
+        focus_back()
         combo = arg.lower().replace(" ", "")
         if "enter" in combo.split("+") and MESSAGING.search(foreground_title()) and not confirmed:
             return ("CONFIRM", f"Press Enter (send) in {foreground_title()[:60]}")
@@ -437,6 +540,7 @@ def main():
         pass
     Path(__file__).with_name(".jarvis-token").write_text(TOKEN)
     threading.Thread(target=voice_server, daemon=True).start()
+    threading.Thread(target=reminder_loop, daemon=True).start()
     room, claps, last, n = 0.02, [], 0.0, 0
     talk = None  # while recording a request: {"frames", "t0", "spoke", "quiet", "wake"}
     before = collections.deque(maxlen=PRE_ROLL)  # the last ~0.6 s, so the first word of a request isn't cut
@@ -490,6 +594,8 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
             talk, last = None, time.time()
         return talk, room, claps, last, n
     before.append(pcm.copy())
+    if n % 6 == 0:
+        track_window()
     if ears.model and n % 4 == 0 and page_waits():  # Jarvis answered and waits for your reply
         return start(False), room, claps, last, n
     score = model.predict(loud).get("hey_jarvis", 0)

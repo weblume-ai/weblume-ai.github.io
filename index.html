@@ -2024,7 +2024,7 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
 
 // small talk goes straight to Groq with a short prompt (~0.5 s; the full agent's prompt is too big for Groq's free tier and falls back to slower models);
 // real work (a site, code, a file, a long text) goes into the normal chat, with its tools and approvals
-const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You control his PC with the tools: open and close apps, websites (in Chrome) and folders, play songs and videos on YouTube (play_youtube actually plays it), search, media keys, windows, look at the screen, click on it, type text and press keys, and lock / sleep / restart / shut down. For a task with several steps (e.g. search inside a site, write in a box), chain the tools: look, click, type, press enter, then look again to check. When done, confirm in a few words. You can't delete files or type passwords or card numbers. Sending in a chat, risky clicks and shutting down wait for his yes on the screen.";
+const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You control his PC with the tools: open and close apps, websites (in Chrome) and folders, play songs and videos on YouTube (play_youtube actually plays it), search, media keys, windows, look at the screen, click on it, type text and press keys, and lock / sleep / restart / shut down. For a task with several steps (e.g. search inside a site, write in a box), chain the tools: look, click, type, press enter, then look again to check. When done, confirm in a few words. You can't delete files or type passwords or card numbers. Sending in a chat, risky clicks and shutting down wait for his yes on the screen. DICTATION: when he says write / type / اكتب something, call type_text with exactly his words in his own language (Arabic stays Arabic, never translate or reword); his cursor or selected text in the window he was using is where it goes, so don't click first unless he asks. You also set reminders and timers (remind_me), keep notes he asks you to remember (remember), tell the weather (weather), and answer questions from the web (web_search, then answer in one or two sentences). Your own knowledge is old: for news, results, scores, prices, who won, who is, anything recent or that may have changed, ALWAYS call web_search first and answer from what it finds.";
 const jvHist=[];
 // Jarvis's hands on this PC, run by the listener through the server (no deleting; sending, risky clicks and power wait for a click on yes)
 const JV_TOOLS=[["open_app","Open an installed app or a well-known site by its English name (chrome, spotify, discord, whatsapp, calculator, settings, vscode, youtube, gmail...)."],
@@ -2036,23 +2036,40 @@ const JV_TOOLS=[["open_app","Open an installed app or a well-known site by its E
   ["type_text","Type text into the box that has focus (Arabic or English); click the box first if needed."],
   ["press_keys","Press a key or shortcut: enter, tab, esc, backspace, space, up/down/left/right, pageup/pagedown, f5, or combos like ctrl+t, ctrl+c, ctrl+v, alt+tab, win+d."],
   ["window","Window action: minimize, maximize, switch, show_desktop, close, new_tab, close_tab, scroll_down, scroll_up, back, refresh, fullscreen."],
-  ["system","PC action: lock, sleep, restart or shutdown."]]
-  .map(([name,description])=>({type:"function",function:{name,description,parameters:{type:"object",properties:{arg:{type:"string"}},required:["arg"]}}}));
+  ["system","PC action: lock, sleep, restart or shutdown."],
+  ["list_reminders","Say his upcoming reminders; arg: empty."],["cancel_reminder","Cancel reminders whose text contains arg (empty cancels all)."],
+  ["weather","Current weather and today's forecast; arg: a city (ask him which if he didn't say)."],
+  ["web_search","Search the web to answer a question (news, facts, prices, scores); arg: the search words."],
+  ["remember","Keep a note he asks you to remember (a fact, a preference, a client); arg: the note in his words."]]
+  .map(([name,description])=>({type:"function",function:{name,description,parameters:{type:"object",properties:{arg:{type:"string"}},required:["arg"]}}}))
+  .concat([{type:"function",function:{name:"remind_me",description:"Set a reminder or timer.",parameters:{type:"object",properties:{
+    when:{type:"string",description:"Local date and time 'YYYY-MM-DD HH:MM' (work it out from now, e.g. in 10 minutes, tomorrow 5 pm)."},text:{type:"string",description:"What to remind him, in his words."}},required:["when","text"]}}}]);
+// tools the page answers itself (the web and the app's memory), the rest go to the listener
+async function jvLocal(name,args){
+  if(name==="remind_me"){const at=new Date(String(args.when||"").replace(" ","T")).getTime()/1000;if(!at)return{result:"I couldn't read that time."};
+    return fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add_reminder",arg:at+"|"+(args.text||"")})}).then(x=>x.json()).catch(()=>({error:"The Jarvis listener isn't running."}))}
+  if(name==="web_search"){const j=await fetch("/api/search?q="+encodeURIComponent(args.arg||"")).then(x=>x.json()).catch(()=>({}));
+    return{result:(j.results||[]).slice(0,5).map(r=>(r.title||"")+": "+(r.snippet||r.body||"")).join("\n")||"No results."}}
+  if(name==="remember"){const j=await fetch("/api/memory",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:args.arg||""})}).then(x=>x.json()).catch(()=>({}));
+    return{result:j.ok?"Noted.":(j.error||"Couldn't save it.")}}
+  return null}
 const JV_NAMES=new Set(JV_TOOLS.map(x=>x.function.name)); // the model may only call these; a click it can't take back waits for a click on «yes»
 function jvConfirm(c){return new Promise(res=>{answer=yes=>res(yes);const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+c.label+"?";b.hidden=false;setMode("ask");say("I need your yes on the screen, sir.",()=>setMode("ask"));b.querySelector(".pri").focus()})}
 async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
-  const msgs=[{role:"system",content:JV_SYS},...jvHist.slice(-8),{role:"user",content:q}];
+  const notes=await fetch("/api/memory").then(x=>x.json()).then(j=>(j.notes||[]).slice(-40).map(n=>"- "+n.text).join("\n")).catch(()=>"");
+  const now=new Date(),stamp=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0")+" "+now.toTimeString().slice(0,5)+" ("+now.toLocaleDateString("en-GB",{weekday:"long"})+")";
+  const msgs=[{role:"system",content:JV_SYS+"\nNow (his local time): "+stamp+"."+(notes?"\nWhat he asked you to remember:\n"+notes:"")},...jvHist.slice(-8),{role:"user",content:q}];
   try{for(let round=0;round<8;round++){ // several steps: look, click, type, enter, look again
       const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
         body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,tools:JV_TOOLS,messages:msgs})});
       if(!r.ok)return "";const m=((await r.json()).choices||[{}])[0].message||{};
       if(m.tool_calls&&m.tool_calls.length){msgs.push({role:"assistant",content:m.content||"",tool_calls:m.tool_calls});
-        for(const c of m.tool_calls){let arg="";try{arg=JSON.parse(c.function.arguments||"{}").arg}catch(e){}
+        for(const c of m.tool_calls){let args={};try{args=JSON.parse(c.function.arguments||"{}")||{}}catch(e){}const arg=args.arg;
           const name=c.function.name;if(!JV_NAMES.has(name)){msgs.push({role:"tool",tool_call_id:c.id,content:"Not allowed."});continue}
           $("#jv-say").textContent="⚙ "+name+" "+(arg||"");
           const post=(action,a,confirmed)=>fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,arg:a,confirmed:!!confirmed})}).then(x=>x.json()).catch(()=>({error:"The Jarvis listener isn't running."}));
           if(name==="close_jarvis")return "__BYE__";
-          let d=await post(name,arg);
+          let d=await jvLocal(name,args)||await post(name,arg);
           if(d.confirm){const yes=await jvConfirm(d.confirm);setMode("think");d=yes?await post(d.confirm.action||"click_at",d.confirm.arg,true):{result:"He said no, so nothing was done."}} // confirmed only after his click
           msgs.push({role:"tool",tool_call_id:c.id,content:d.result||d.error||"failed"})}
         continue}
@@ -2108,6 +2125,7 @@ if(VIA_SERVER)setInterval(()=>{const want=!jv.hidden&&micOn&&(mode==="idle"||mod
   fetch("/api/jarvis"+(want?"?listen=1":"")).then(r=>r.json()).then(j=>{
     polled=true;if(j.hear!==serverEar){serverEar=!!j.hear;if(serverEar){stopRec();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;an=null}}else startRec()}
     if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;if(serverEar)setMode("listen")}
+    if(typeof j.say==="string"&&j.say){if(jv.hidden)open_();say(j.say)} // a reminder came due
     if(typeof j.text==="string"&&!jv.hidden&&mode!=="think"&&mode!=="speak"){$("#jv-you").textContent=j.text;ask(j.text)}}).catch(()=>{})},300);
 })();
 </script>
