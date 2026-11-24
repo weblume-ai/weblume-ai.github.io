@@ -1,8 +1,10 @@
-"""Jarvis wake listener for Phainora AI: two claps or "Hey Jarvis" opens Jarvis.
+"""Jarvis wake listener: two claps or "Hey Jarvis" opens Jarvis.
 The microphone audio is analysed on this laptop only; nothing is recorded or sent anywhere.
-start.bat starts it next to the server; it exits when the server stops.
+Runs from Windows startup (Jarvis only, light): the app's small server starts only when Jarvis is called,
+without the company server or the full Phainora AI window.
   python jarvis_listener.py --test   prints the live levels, to tune CLAP_PEAK for your mic"""
 import json, os, socket, subprocess, sys, time, urllib.request
+from pathlib import Path
 import numpy as np
 import sounddevice as sd
 from openwakeword.model import Model
@@ -24,8 +26,22 @@ def server_up():
         return False
 
 
+def start_server():
+    """The app's own small Node server, hidden, with no browser and no company server."""
+    root = Path(__file__).resolve().parent.parent
+    subprocess.Popen(["node", str(root / "server" / "proxy.js")], cwd=root, creationflags=subprocess.CREATE_NO_WINDOW,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(30):
+        time.sleep(0.5)
+        if server_up():
+            return True
+    return False
+
+
 def open_jarvis(why):
     print("open:", why, flush=True)
+    if not server_up() and not start_server():
+        return
     try:  # an open Phainora AI window shows Jarvis itself
         req = urllib.request.Request(URL + "/api/jarvis", data=b"{}", headers={"Content-Type": "application/json"})
         if json.load(urllib.request.urlopen(req, timeout=3)).get("page"):
@@ -43,13 +59,15 @@ def is_double_clap(times, now):
 
 
 def main():
+    if "--open" in sys.argv:  # the desktop Jarvis shortcut: open it now, no listening
+        return open_jarvis("shortcut")
     lock = socket.socket()
     try:
         lock.bind(("127.0.0.1", 8789))  # one listener only, even if start.bat runs twice
     except OSError:
         return
     model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
-    room, claps, last, seen_up, last_check = 0.02, [], 0.0, time.time(), 0.0
+    room, claps, last = 0.02, [], 0.0
     with sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK) as mic:
         while True:
             block, _ = mic.read(CHUNK)
@@ -72,12 +90,6 @@ def main():
                 last = now
                 model.reset()
                 open_jarvis(f"hey jarvis {score:.2f}")
-            if not TEST and now - last_check > 10:  # leave with the server
-                last_check = now
-                if server_up():
-                    seen_up = now
-                elif now - seen_up > 90:
-                    return
 
 
 assert is_double_clap([1.0, 1.4], 1.4) and not is_double_clap([1.0, 2.5], 2.5) and not is_double_clap([1.4], 1.4)
