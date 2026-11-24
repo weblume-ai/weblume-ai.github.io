@@ -565,7 +565,8 @@ async function runAgent(cfg,skills,history,onEvent,signal){
   const ref=ex?"\n\nمرجع الجودة: ده موقع من مواقع Phainora المعتمدة (الطلب كان: «"+ex.request+"»). اوصل لنفس المستوى أو أعلى في: الافتتاحية، حركة GSAP في كل قسم، أداة تفاعلية خاصة بالنشاط، الحجز أو الطلب على واتساب، زرار عربي/إنجليزي، حماية الصور. ممنوع تنسخ تصميمه أو ألوانه أو خطوطه أو نصوصه: اخترع تصميم مختلف خاص بالمشروع ده.\n```html\n"+ex.html+"\n```":"";
   const house=free?"\n\nقواعد Phainora الثابتة (أهم من أي حاجة فوق): ممنوع خريطة جوجل جوه الصفحة (iframe)؛ حط العنوان مكتوب وزرار «الاتجاهات» يفتح https://www.google.com/maps/search/?api=1&query=العنوان. ممنوع تقييمات أو نجوم أو عدد زباين أو جوايز أو آراء عملاء من عندك. ممنوع أرقام تليفون أو حسابات سوشيال من عندك: رقم الواتساب في متغير واحد WA=\"966500000000\" وماتكتبوش ظاهر في الصفحة. ممنوع ذهبي على خلفية غامقة (شكل الـ AI): اختار ألوان من روح النشاط. احمي الصور: امنع الكليك يمين والسحب عليها.":"";
   const photos=free&&typeof SRV!=="undefined"&&SRV?"\n\nالصور (بدل أي تعليمات قبل كده عن الصور): حط صور حقيقية بالصيغة دي بالظبط: <img src=\"https://placehold.co/WxH\" data-photo=\"English photo description: subject, setting, light\" alt=\"وصف عربي\" width=\"W\" height=\"H\">. الموقع بيحط مكانها صور حقيقية لوحده. ماتألفش لينكات صور.":"";
-  const sys={role:"system",content:buildSystem(skills,cfg.fast,free)+extra+ref+house+photos+(lean(cfg)?"":tools)+await loadMemory(signal)};
+  const jv_=document.getElementById("jv"),spoken=jv_&&!jv_.hidden?"\n\nانت دلوقتي Jarvis في وضع الصوت: ردك هيتقري بصوت راجل بريطاني. رد بالإنجليزي في جملة أو اتنين قصيرين زي Jarvis بتاع Iron Man: هادي وذكي ومؤدب وبتقوله «sir»، حتى لو كلمك بالعربي (هو فاهم إنجليزي). لو طلب صريح إنك ترد بالعربي رد بالمصري. من غير كود ولا جداول ولا نقط ولا إيموجي. ماتعملش موقع ولا ملف إلا لو طلب صريح («اعملي موقع…»)؛ «اتكلم معايا» أو «سامعني؟» دي دردشة عادية.":"";
+  const sys={role:"system",content:buildSystem(skills,cfg.fast,free)+extra+ref+house+photos+(lean(cfg)?"":tools)+spoken+await loadMemory(signal)};
   for(let i=0;i<MAX_TURNS;i++){
     let msg=await chatOnce(cfg,[sys,...history],onEvent,signal);
     if(!msg.content&&!(msg.tool_calls&&msg.tool_calls.length)){
@@ -1985,8 +1986,14 @@ const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
 let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/Shakir/i.test(x.name)&&/ar-EG/i.test(x.lang))||v.find(x=>/ar-EG/i.test(x.lang)&&/natural|online/i.test(x.name))||v.find(x=>/ar-EG/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang))||null};
 speechSynthesis.onvoiceschanged=pickVoice;pickVoice();
 // code and links are read from the screen, not aloud
-const clean=t=>String(t||"").replace(/```[\s\S]*?```/g," الكود قدامك في الشات. ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
-function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();speechSynthesis.cancel();setMode("speak");
+const clean=t=>String(t||"").replace(/```[\s\S]*?(```|$)/g," الكود قدامك في الشات. ").replace(/<!doctype[\s\S]*|<\/?[a-z][^>]*>|\{[^}]*\}|\b[\w-]+\.(html|css|js|json)\b/gi," ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
+let jvAudio=null;const hush=()=>{speechSynthesis.cancel();if(jvAudio){jvAudio.onended=jvAudio.onerror=null;jvAudio.pause();jvAudio=null}};
+// the server's natural voice (Ryan / Andrew) when it's there; else the browser's own voices
+async function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();hush();setMode("speak");
+  if(VIA_SERVER){try{const r=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t.slice(0,1500)})});
+    if(r.ok){const a=new Audio(URL.createObjectURL(await r.blob()));jvAudio=a;a.onended=a.onerror=()=>{jvAudio=null;if(after)after();else done()};await a.play();return}}catch(e){}}
+  sayBrowser(t,after)}
+function sayBrowser(t,after){
   const parts=(t.match(/[^.!؟?\n]{1,200}[.!؟?]?/g)||[t]).slice(0,8);
   parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"ar-EG";if(voice)u.voice=voice;u.rate=1.0;u.pitch=0.85;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
 // after it answers it keeps listening for a follow-up for a few seconds without the wake word
@@ -2037,9 +2044,9 @@ function draw(){if(jv.hidden)return;t+=1/60;
   requestAnimationFrame(draw)}
 
 function open_(){jv.hidden=false;fitOrb();setMode(SR?"off":"nosr");requestAnimationFrame(draw);$("#jv-type").focus();if(SR)toggleMic(true)}
-function close_(){jv.hidden=true;toggleMic(false);speechSynthesis.cancel();$("#jv-ask").hidden=true}
+function close_(){jv.hidden=true;toggleMic(false);hush();$("#jv-ask").hidden=true}
 $("#jv-btn").onclick=open_;$("#jv-x").onclick=close_;$("#jv-mic").onclick=()=>toggleMic(!micOn);
-$("#jv-type").onkeydown=e=>{if(e.key==="Enter"&&e.target.value.trim()){const q=e.target.value.trim();e.target.value="";speechSynthesis.cancel();ask(q)}};
+$("#jv-type").onkeydown=e=>{if(e.key==="Enter"&&e.target.value.trim()){const q=e.target.value.trim();e.target.value="";hush();ask(q)}};
 addEventListener("keydown",e=>{if(e.ctrlKey&&(e.key==="j"||e.key==="J"||e.code==="KeyJ")){e.preventDefault();jv.hidden?open_():close_()}else if(e.key==="Escape"&&!jv.hidden)close_()});
 addEventListener("resize",()=>{if(!jv.hidden)fitOrb()});
 if(/[?&#]jarvis\b/.test(location.search+location.hash))open_(); // the desktop shortcut opens straight into Jarvis

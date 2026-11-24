@@ -15,3 +15,4 @@ weblume-hands.json
 desktop/.venv/
 training/*.gguf
 desktop/jarvis_listener.log
+desktop/voice-samples/

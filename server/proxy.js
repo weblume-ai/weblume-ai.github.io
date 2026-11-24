@@ -200,6 +200,15 @@ const server=http.createServer(async(req,res)=>{
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
       return send(res,405,{error:"Method غير مسموح."})}
+    // Jarvis's voice: Microsoft's natural voices through edge-tts (desktop/.venv); English in Ryan (British), Arabic in Andrew (multilingual)
+    if(m==="POST"&&p==="/api/tts"){const b=await readBody(req),text=typeof b.text==="string"?b.text.trim().slice(0,1500):"";
+      if(!text)return send(res,400,{error:"مفيش نص."});
+      const exe=path.join(ROOT,"desktop",".venv","Scripts","edge-tts.exe");if(!fs.existsSync(exe))return send(res,503,{error:"edge-tts مش متسطب (desktop\\setup_jarvis.bat)."});
+      const ar=/[؀-ۿ]/.test(text),out=path.join(require("os").tmpdir(),"jv-"+process.pid+"-"+Date.now()+".mp3");
+      // execFile with an argument list (no shell); "--text=" so a reply starting with "-" is never read as an option
+      const ok=await new Promise(r=>require("child_process").execFile(exe,["--voice",ar?"en-US-AndrewMultilingualNeural":"en-GB-RyanNeural","--pitch="+(ar?"-8Hz":"-6Hz"),"--text="+text,"--write-media",out],{timeout:30000,windowsHide:true},e=>r(!e)));
+      if(!ok||!fs.existsSync(out))return send(res,502,{error:"الصوت مش راضي يطلع (edge-tts محتاج نت)."});
+      const buf=fs.readFileSync(out);fs.unlink(out,()=>{});res.writeHead(200,{...baseHeaders,"Content-Type":"audio/mpeg"});return res.end(buf)}
     // two claps / "Hey Jarvis" (desktop/jarvis_listener.py): an open page picks the request up on its next poll; with no page, the listener opens a window
     if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();const o=jvWant;jvWant=false;return send(res,200,{open:o})}
       if(m==="POST"){const page=Date.now()-jvSeen<4000;if(page)jvWant=true;return send(res,200,{page})}
