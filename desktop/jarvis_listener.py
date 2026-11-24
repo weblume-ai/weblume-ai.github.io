@@ -69,7 +69,7 @@ def open_jarvis(why):
 
 
 SPEECH = 0.002      # raw loudness that counts as talking: NVIDIA Broadcast mutes the room (~0.00002) and keeps the voice quiet (~0.005)
-END_QUIET, NO_SPEECH, MAX_TALK = 0.7, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
+END_QUIET, NO_SPEECH, MAX_TALK = 0.6, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
 
@@ -109,6 +109,27 @@ SITES = {"youtube": "https://www.youtube.com", "google": "https://www.google.com
 FOLDERS = {"downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
            "videos": "Videos", "music": "Music", "projects": r"Downloads\Projects"}
 KEYS = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
+
+
+def screenshot():
+    """The whole screen as a JPEG, 1280 wide (enough for the vision model to find a button)."""
+    import io
+    from PIL import ImageGrab
+    im = ImageGrab.grab(all_screens=False).convert("RGB")
+    im.thumbnail((1280, 1280))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=80)
+    return buf.getvalue()
+
+
+def click(fx, fy):
+    """Left click at a point given as fractions (0..1) of the screen."""
+    u = ctypes.windll.user32
+    w, h = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+    u.SetCursorPos(int(fx * w), int(fy * h))
+    time.sleep(0.05)
+    u.mouse_event(2, 0, 0, 0, 0)  # left down
+    u.mouse_event(4, 0, 0, 0, 0)  # left up
 
 
 def find_app(name):
@@ -163,6 +184,12 @@ def act(action, arg):
             p = Path.home() / "OneDrive" / ("Documentos" if sub == "Documents" else r"Documentos\Desktop")
         os.startfile(str(p))
         return f"Opened {arg}."
+    if action == "click_at":  # "x,y" as fractions of the screen; the server found the spot and asked first when it was risky
+        fx, fy = (float(v) for v in arg.split(","))
+        if not (0 <= fx <= 1 and 0 <= fy <= 1):
+            return "That point is off the screen."
+        click(fx, fy)
+        return "Clicked."
     if action == "media":
         vk = KEYS.get(arg.lower())
         if vk is None:
@@ -216,6 +243,36 @@ def voice_server():
             self.end_headers()
             self.wfile.write(audio)
 
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path)
+            if u.path == "/tts":  # streamed: the first words play while the rest is still being made
+                text = urllib.parse.parse_qs(u.query).get("text", [""])[0][:1500]
+                if not text.strip():
+                    return self.send_error(400)
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.end_headers()
+
+                async def stream():
+                    async for c in edge_tts.Communicate(text, "en-GB-RyanNeural", pitch="-6Hz").stream():
+                        if c["type"] == "audio":
+                            self.wfile.write(c["data"])
+                            self.wfile.flush()
+                try:
+                    asyncio.run(stream())
+                except Exception:
+                    pass
+                return
+            if u.path == "/shot":  # the screen, for Jarvis's eyes (token only)
+                if not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), TOKEN):
+                    return self.send_error(403)
+                png = screenshot()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.end_headers()
+                return self.wfile.write(png)
+            self.send_error(404)
+
         def log_message(self, *a):
             pass
     try:
@@ -257,6 +314,10 @@ def main():
     model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
     ears = Ears()
     threading.Thread(target=ears.load, daemon=True).start()
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # screenshots and clicks both in real pixels on a scaled display
+    except Exception:
+        pass
     Path(__file__).with_name(".jarvis-token").write_text(TOKEN)
     threading.Thread(target=voice_server, daemon=True).start()
     room, claps, last, n = 0.02, [], 0.0, 0

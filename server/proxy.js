@@ -143,6 +143,27 @@ function forgetMemory(texts){
   const drop=new Set(texts.map(t=>t.trim())),notes=readMemory(),keep=notes.filter(n=>!drop.has(n.text));
   fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:keep},null,1),{mode:0o600});return{code:200,body:{removed:notes.length-keep.length,left:keep.length}}}
 let jvSeen=0,jvWant=false,jvText=null,jvListen=0,jvEar=0;
+// Jarvis's hands and eyes. The listener (127.0.0.1:8788, per-run token) does the clicking; the screen goes to Gemini only when he asks to look or click
+async function jvHand(action,arg,tok){const w=await fetch("http://127.0.0.1:8788/do",{method:"POST",headers:{"Content-Type":"application/json","X-Jarvis-Token":tok},body:JSON.stringify({action,arg}),signal:AbortSignal.timeout(15000)});
+  if(!w.ok)throw new Error("The listener refused.");return w.json()}
+async function jvVision(prompt,jpg){const k=(readSettings().keys||{}).gemini;if(!k)throw new Error("Jarvis needs a Gemini key to see the screen.");
+  // timed 2026-11-25: 3.1-flash-lite ~3.4 s and accurate boxes; 3.5-flash with thinking off ~8 s; 2.5-flash is retired, the bigger ones think for minutes
+  for(const [model,effort] of [["gemini-3.1-flash-lite",null],["gemini-3.5-flash","none"],["gemini-flash-lite-latest",null]]){
+    const body={model,messages:[{role:"user",content:[{type:"text",text:prompt},{type:"image_url",image_url:{url:"data:image/jpeg;base64,"+jpg.toString("base64")}}]}]};if(effort)body.reasoning_effort=effort;
+    try{const r=await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},signal:AbortSignal.timeout(30000),body:JSON.stringify(body)});
+      if(r.ok){const j=await r.json();return String(((j.choices||[])[0]||{}).message?.content||"")}}catch(e){}}
+  throw new Error("Gemini didn't answer.")}
+const RISKY=/delete|remove|trash|send|pay|buy|purchase|checkout|order|confirm|submit|transfer|install|uninstall|sign ?out|log ?out|حذف|امسح|مسح|إرسال|ارسال|ابعت|ادفع|دفع|شراء|اشتري|تأكيد|تثبيت|خروج/i;
+async function jvEyes(action,arg,tok){
+  const s=await fetch("http://127.0.0.1:8788/shot",{headers:{"X-Jarvis-Token":tok},signal:AbortSignal.timeout(10000)});if(!s.ok)throw new Error("Couldn't take a screenshot.");
+  const jpg=Buffer.from(await s.arrayBuffer());
+  if(action==="look")return{result:await jvVision("This is my computer screen. In two short English sentences, say what is open and what matters on it"+(arg?", focusing on: "+arg:"")+". No lists.",jpg)};
+  const t=await jvVision('On this screenshot find the element I want to click: "'+arg.replace(/"/g,"'")+'". Answer ONLY JSON: {"found":true,"label":"the visible text or name of that element","box_2d":[ymin,xmin,ymax,xmax]} with box_2d normalized 0-1000, or {"found":false,"why":"short reason"}.',jpg);
+  let o={};try{o=JSON.parse(t.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"))}catch(e){}
+  const bx=o.box_2d;if(!o.found||!Array.isArray(bx)||bx.length!==4||!bx.every(v=>Number.isFinite(v)))return{result:"I can't see "+arg+" on the screen"+(o.why?": "+o.why:"")+"."};
+  const pt=((bx[1]+bx[3])/2000).toFixed(4)+","+((bx[0]+bx[2])/2000).toFixed(4),label=String(o.label||arg).slice(0,80);
+  if(RISKY.test(label+" "+arg))return{result:"That would click \""+label+"\". I need your yes on the screen first.",confirm:{arg:pt,label}}; // a voice "yes" could come from anyone in the room
+  const d=await jvHand("click_at",pt,tok);return{result:"Clicked \""+label+"\". "+(d.result||"")}}
 const server=http.createServer(async(req,res)=>{
   try{
     const p=new URL(req.url,"http://x").pathname,m=req.method;
@@ -201,6 +222,12 @@ const server=http.createServer(async(req,res)=>{
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
       return send(res,405,{error:"Method غير مسموح."})}
     // Jarvis's voice: Microsoft's natural voices through edge-tts (desktop/.venv); English in Ryan (British), Arabic in Andrew (multilingual)
+    // GET streams from the listener, so the first words play while the rest is still being made (an <audio> src)
+    if(m==="GET"&&p==="/api/tts"){const text=String(qs.get("text")||"").replace(/[؀-ۿ]+/g," ").replace(/\s+/g," ").trim().slice(0,1500);
+      if(!text)return send(res,400,{error:"مفيش نص."});
+      try{const w=await fetch("http://127.0.0.1:8788/tts?text="+encodeURIComponent(text),{signal:AbortSignal.timeout(30000)});
+        if(w.ok&&w.body){res.writeHead(200,{...baseHeaders,"Content-Type":"audio/mpeg"});return Readable.fromWeb(w.body).pipe(res)}}catch(e){}
+      return send(res,503,{error:"The voice isn't running."})}
     if(m==="POST"&&p==="/api/tts"){const b=await readBody(req),text=typeof b.text==="string"?b.text.replace(/[؀-ۿ]+/g," ").replace(/\s+/g," ").trim().slice(0,1500):""; // Jarvis speaks English only
       if(!text)return send(res,400,{error:"مفيش نص."});
       try{const w=await fetch("http://127.0.0.1:8788/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text}),signal:AbortSignal.timeout(20000)}); // the listener keeps Ryan warm
@@ -214,10 +241,10 @@ const server=http.createServer(async(req,res)=>{
     // two claps / "Hey Jarvis" (desktop/jarvis_listener.py): an open page picks the request up on its next poll; with no page, the listener opens a window
     // Jarvis's hands: open an app / site / folder, search, media keys. Run by the listener; the token file is out of a web page's reach
     if(m==="POST"&&p==="/api/do"){const b=await readBody(req),action=String(b.action||""),arg=String(b.arg||"").slice(0,200);
-      if(!/^(open_app|open_website|search_google|search_youtube|open_folder|media)$/.test(action))return send(res,400,{error:"Unknown action."});
+      if(!/^(open_app|open_website|search_google|search_youtube|open_folder|media|look|click|click_at)$/.test(action))return send(res,400,{error:"Unknown action."});
       let tok="";try{tok=fs.readFileSync(path.join(ROOT,"desktop",".jarvis-token"),"utf8").trim()}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}
-      try{const w=await fetch("http://127.0.0.1:8788/do",{method:"POST",headers:{"Content-Type":"application/json","X-Jarvis-Token":tok},body:JSON.stringify({action,arg}),signal:AbortSignal.timeout(15000)});
-        return send(res,w.ok?200:502,w.ok?await w.json():{error:"The listener refused."})}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}}
+      try{if(action==="look"||action==="click")return send(res,200,await jvEyes(action,arg,tok));
+        return send(res,200,await jvHand(action,arg,tok))}catch(e){return send(res,503,{error:e.message||"The Jarvis listener isn't running."})}}
     // the listener's ears (Whisper on the GPU): it asks here whether the page waits for speech, and posts what it heard to /api/jarvis
     if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen})}
     if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();if(qs.get("listen")==="1")jvListen=Date.now()+2500;
