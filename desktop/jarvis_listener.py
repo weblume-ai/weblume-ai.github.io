@@ -84,7 +84,8 @@ class Ears:
                 os.add_dll_directory(str(d))  # cuBLAS / cuDNN from the pip wheels; CTranslate2 also looks on PATH
                 os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
             from faster_whisper import WhisperModel
-            self.model = WhisperModel("large-v3-turbo", device="cuda", compute_type="int8_float16")
+            # large-v3, not turbo: turbo's cut-down decoder mishears Egyptian Arabic more ("شغل اوني"); ~1 s on the RTX 4060
+            self.model = WhisperModel("large-v3", device="cuda", compute_type="int8_float16")
             log("whisper ready")
         except Exception as e:
             log(f"whisper not loaded: {e}")
@@ -109,6 +110,20 @@ SITES = {"youtube": "https://www.youtube.com", "google": "https://www.google.com
 FOLDERS = {"downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
            "videos": "Videos", "music": "Music", "projects": r"Downloads\Projects"}
 KEYS = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
+
+
+CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+CLOSE = {"google": "chrome", "google chrome": "chrome", "edge": "msedge", "microsoft edge": "msedge", "calculator": "calculatorapp",
+         "file explorer": "explorer", "word": "winword", "excel": "excel", "vscode": "code", "visual studio code": "code"}
+KEEP = {"explorer", "python", "pythonw", "node", "powershell", "cmd", "system", "svchost", "winlogon", "csrss", "dwm"}  # never closed by voice
+
+
+def browse(url):
+    """Websites open in Chrome (his browser), not the Windows default (Edge)."""
+    if CHROME.exists():
+        subprocess.Popen([str(CHROME), url])
+    else:
+        os.startfile(url)
 
 
 def screenshot():
@@ -169,12 +184,25 @@ def act(action, arg):
             url = "https://" + url
         if not re.match(r"^https?://[\w.-]+\.[a-z]{2,}(/\S*)?$", url, re.I):
             return "That doesn't look like a website address."
-        os.startfile(url)
-        return f"Opened {url}."
+        browse(url)
+        return f"Opened {url} in Chrome."
     if action in ("search_google", "search_youtube"):
         base = "https://www.google.com/search?q=" if action == "search_google" else "https://www.youtube.com/results?search_query="
-        os.startfile(base + urllib.parse.quote(arg))
+        browse(base + urllib.parse.quote(arg))
         return f"Searching for {arg}."
+    if action == "close_app":
+        name = re.sub(r"[^a-z0-9 ]", "", arg.lower()).strip()
+        proc = CLOSE.get(name, name)
+        if not proc or proc in KEEP:
+            return f"I won't close {arg}."
+        # CloseMainWindow is the same as clicking X: an app with unsaved work still asks to save
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "$n=$env:JV_APP; $p=Get-Process | ? { $_.ProcessName -like \"*$n*\" -and $_.MainWindowHandle -ne 0 }; "
+                            "$p | % { [void]$_.CloseMainWindow() }; $p.Count"],
+                           capture_output=True, text=True, timeout=15, env={**os.environ, "JV_APP": proc},
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        n = (r.stdout.strip().splitlines() or ["0"])[-1]
+        return f"Closed {arg}." if n not in ("", "0") else f"{arg} isn't open."
     if action == "open_folder":
         sub = FOLDERS.get(arg.lower())
         if not sub:

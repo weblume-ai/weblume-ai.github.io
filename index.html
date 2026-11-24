@@ -2022,13 +2022,14 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
 
 // small talk goes straight to Groq with a short prompt (~0.5 s; the full agent's prompt is too big for Groq's free tier and falls back to slower models);
 // real work (a site, code, a file, a long text) goes into the normal chat, with its tools and approvals
-const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You can act on his PC with the tools: open apps, websites and folders, search Google or YouTube, media keys, look at his screen, and click something on it. When he asks you to open, play, look or click, call the tool, then confirm in a few words. You can't delete files, send messages, buy or type for him; say so if asked. A risky click (delete, send, pay, confirm) waits for his yes on the screen.";
+const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You can act on his PC with the tools: open and close apps, open websites (in Chrome) and folders, search Google or YouTube, media keys, look at his screen, and click something on it. When he asks you to open, play, look or click, call the tool, then confirm in a few words. You can't delete files, send messages, buy or type for him; say so if asked. A risky click (delete, send, pay, confirm) waits for his yes on the screen.";
 const jvHist=[];
 // Jarvis's hands on this PC, run by the listener through the server (open only, no deleting / sending / typing)
 const JV_TOOLS=[["open_app","Open an installed app or a well-known site by its English name (chrome, spotify, discord, whatsapp, calculator, settings, vscode, youtube, gmail...)."],
   ["open_website","Open a website by its address, e.g. weblume-sa.github.io."],["search_google","Search Google."],["search_youtube","Search YouTube (to play a song or video)."],
   ["open_folder","Open a folder: downloads, desktop, documents, pictures, videos, music or projects."],["media","Media key: play_pause, next, previous, volume_up, volume_down or mute."],
-  ["look","Look at his screen and describe it; arg: what to focus on, or empty."],["click","Click something on his screen; arg: describe it in English as it looks (e.g. 'the blue Sign in button', 'the YouTube search box')."]]
+  ["look","Look at his screen and describe it; arg: what to focus on, or empty."],["click","Click something on his screen; arg: describe it in English as it looks (e.g. 'the blue Sign in button', 'the YouTube search box')."],
+  ["close_app","Close an open app by its English name (spotify, discord, chrome, calculator...), like pressing its X."],["close_jarvis","Close Jarvis itself (when he says close yourself / bye / اقفل نفسك); arg: empty."]]
   .map(([name,description])=>({type:"function",function:{name,description,parameters:{type:"object",properties:{arg:{type:"string"}},required:["arg"]}}}));
 const JV_NAMES=new Set(JV_TOOLS.map(x=>x.function.name)); // the model may only call these; a click it can't take back waits for a click on «yes»
 function jvConfirm(c){return new Promise(res=>{answer=yes=>res(yes);const b=$("#jv-ask");b.querySelector("span").textContent="⏸ Click «"+c.label+"»?";b.hidden=false;setMode("ask");b.querySelector(".pri").focus()})}
@@ -2043,6 +2044,7 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
           const name=c.function.name;if(!JV_NAMES.has(name)){msgs.push({role:"tool",tool_call_id:c.id,content:"Not allowed."});continue}
           $("#jv-say").textContent="⚙ "+name+" "+(arg||"");
           const post=(action,a)=>fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,arg:a})}).then(x=>x.json()).catch(()=>({error:"The Jarvis listener isn't running."}));
+          if(name==="close_jarvis")return "__BYE__";
           let d=await post(name,arg);
           if(d.confirm){const yes=await jvConfirm(d.confirm);setMode("think");d=yes?await post("click_at",d.confirm.arg):{result:"He said no, nothing was clicked."}}
           msgs.push({role:"tool",tool_call_id:c.id,content:d.result||d.error||"failed"})}
@@ -2052,7 +2054,9 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
 async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
   if(busy){say("One moment, sir, I'm still on the last one.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");
-  if(classifyTask(q)==="chat"){const a=await quick(q);if(a){say(a);return}}
+  if(classifyTask(q)==="chat"){const a=await quick(q);
+    if(a==="__BYE__"){say("Goodbye, sir.",()=>{close_();try{window.close()}catch(e){}});return} // a Jarvis-only window closes; two claps opens it again
+    if(a){say(a);return}}
   $("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
 addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
