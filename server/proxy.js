@@ -201,8 +201,10 @@ const server=http.createServer(async(req,res)=>{
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}
       return send(res,405,{error:"Method غير مسموح."})}
     // Jarvis's voice: Microsoft's natural voices through edge-tts (desktop/.venv); English in Ryan (British), Arabic in Andrew (multilingual)
-    if(m==="POST"&&p==="/api/tts"){const b=await readBody(req),text=typeof b.text==="string"?b.text.trim().slice(0,1500):"";
+    if(m==="POST"&&p==="/api/tts"){const b=await readBody(req),text=typeof b.text==="string"?b.text.replace(/[؀-ۿ]+/g," ").replace(/\s+/g," ").trim().slice(0,1500):""; // Jarvis speaks English only
       if(!text)return send(res,400,{error:"مفيش نص."});
+      try{const w=await fetch("http://127.0.0.1:8788/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text}),signal:AbortSignal.timeout(20000)}); // the listener keeps Ryan warm
+        if(w.ok){res.writeHead(200,{...baseHeaders,"Content-Type":"audio/mpeg"});return res.end(Buffer.from(await w.arrayBuffer()))}}catch(e){}
       const exe=path.join(ROOT,"desktop",".venv","Scripts","edge-tts.exe");if(!fs.existsSync(exe))return send(res,503,{error:"edge-tts مش متسطب (desktop\\setup_jarvis.bat)."});
       const ar=/[؀-ۿ]/.test(text),out=path.join(require("os").tmpdir(),"jv-"+process.pid+"-"+Date.now()+".mp3");
       // execFile with an argument list (no shell); "--text=" so a reply starting with "-" is never read as an option

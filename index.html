@@ -1982,20 +1982,22 @@ const S={idle:"قول «يا جارفيس» وبعدها طلبك",listen:"سا�
 let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null,serverEar=false;
 const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
 
-// the voice: a deep male "Jarvis" voice: Edge's natural Egyptian Shakir, else any natural Egyptian voice, else any Arabic voice
-let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/Shakir/i.test(x.name)&&/ar-EG/i.test(x.lang))||v.find(x=>/ar-EG/i.test(x.lang)&&/natural|online/i.test(x.name))||v.find(x=>/ar-EG/i.test(x.lang))||v.find(x=>/^ar/i.test(x.lang))||null};
+// backup voice when the server's Ryan isn't reachable: Edge's own Ryan, else any British, else any English voice (Jarvis never speaks Arabic)
+let voice=null;const pickVoice=()=>{const v=speechSynthesis.getVoices();voice=v.find(x=>/Ryan/i.test(x.name)&&/en-GB/i.test(x.lang))||v.find(x=>/en-GB/i.test(x.lang))||v.find(x=>/^en/i.test(x.lang))||null};
 speechSynthesis.onvoiceschanged=pickVoice;pickVoice();
 // code and links are read from the screen, not aloud
-const clean=t=>String(t||"").replace(/```[\s\S]*?(```|$)/g," الكود قدامك في الشات. ").replace(/<!doctype[\s\S]*|<\/?[a-z][^>]*>|\{[^}]*\}|\b[\w-]+\.(html|css|js|json)\b/gi," ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
+const clean=t=>String(t||"").replace(/```[\s\S]*?(```|$)/g," The code is on your screen, sir. ").replace(/<!doctype[\s\S]*|<\/?[a-z][^>]*>|\{[^}]*\}|\b[\w-]+\.(html|css|js|json)\b/gi," ").replace(/https?:\/\/\S+/g," ").replace(/[*_#>`|]/g,"").replace(/\s+/g," ").trim();
 let jvAudio=null;const hush=()=>{speechSynthesis.cancel();if(jvAudio){jvAudio.onended=jvAudio.onerror=null;jvAudio.pause();jvAudio=null}};
 // the server's natural voice (Ryan / Andrew) when it's there; else the browser's own voices
-async function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();hush();setMode("speak");
+async function say(t,after){t=clean(t);if(!t){done();return}$("#jv-say").textContent=t.slice(0,600);stopRec();hush();
+  t=t.replace(/[؀-ۿ]+/g," ").replace(/\s+/g," ").trim();if(!/[a-z]/i.test(t)){if(after)after();else done();return} // English only out loud
+  setMode("speak");
   if(VIA_SERVER){try{const r=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t.slice(0,1500)})});
     if(r.ok){const a=new Audio(URL.createObjectURL(await r.blob()));jvAudio=a;a.onended=a.onerror=()=>{jvAudio=null;if(after)after();else done()};await a.play();return}}catch(e){}}
   sayBrowser(t,after)}
 function sayBrowser(t,after){
   const parts=(t.match(/[^.!؟?\n]{1,200}[.!؟?]?/g)||[t]).slice(0,8);
-  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"ar-EG";if(voice)u.voice=voice;u.rate=1.0;u.pitch=0.85;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
+  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=voice?voice.lang:"en-GB";if(voice)u.voice=voice;u.rate=1.0;u.pitch=0.85;if(i===parts.length-1){u.onend=u.onerror=()=>{if(after)after();else done()}}speechSynthesis.speak(u)})}
 // after it answers it keeps listening for a follow-up for a few seconds without the wake word
 function done(){awake=Date.now()+9000;setMode(micOn?"idle":"off");startRec()}
 
@@ -2016,15 +2018,24 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
   try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const ac=new AudioContext();an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(stream).connect(an)}catch(e){toggleMic(false);$("#jv-say").textContent="مفيش إذن للميكروفون. اسمح بيه أو اكتب تحت.";return}
   setMode("idle");startRec()}
 
-// a request goes into the normal chat; the spoken answer is the chat's final text
-function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
-  if(busy){say("لسه شغال على اللي قبله، ثانية واحدة.");return}
-  stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");$("#msg").value=q;send()}
+// small talk goes straight to Groq with a short prompt (~0.5 s; the full agent's prompt is too big for Groq's free tier and falls back to slower models);
+// real work (a site, code, a file, a long text) goes into the normal chat, with its tools and approvals
+const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. If he asks for something you can't do from here, say so in one sentence.";
+const jvHist=[];
+async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
+  try{const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
+      body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,messages:[{role:"system",content:JV_SYS},...jvHist.slice(-8),{role:"user",content:q}]})});
+    const a=r.ok?((await r.json()).choices||[{}])[0].message.content||"":"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a}catch(e){return ""}}
+async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
+  if(busy){say("One moment, sir, I'm still on the last one.");return}
+  stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");
+  if(classifyTask(q)==="chat"){const a=await quick(q);if(a){say(a);return}}
+  $("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
 addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
 addEventListener("wl-done",()=>{if(jv.hidden)return;$("#jv-ask").hidden=true;answer=null;const r=reply;reply="";r?say(r):done()});
 // risky steps: the same موافق/لا as the chat, shown big; only a click answers (a voice "yes" could come from anyone in the room)
-addEventListener("wl-confirm",e=>{if(jv.hidden)return;answer=e.detail.answer;const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+e.detail.text;b.hidden=false;setMode("ask");say("محتاج موافقتك قبل ما أكمل. دوس موافق أو لا.",()=>setMode("ask"));b.querySelector(".pri").focus()});
+addEventListener("wl-confirm",e=>{if(jv.hidden)return;answer=e.detail.answer;const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+e.detail.text;b.hidden=false;setMode("ask");say("I need your approval before I go on, sir. Press yes or no.",()=>setMode("ask"));b.querySelector(".pri").focus()});
 $("#jv-ask").addEventListener("click",e=>{const b=e.target.closest("button");if(!b||!answer)return;answer(b.dataset.a==="1");answer=null;$("#jv-ask").hidden=true;setMode("think")});
 
 // the orb: a glowing blue core, rings and drifting sparks; it swells with your voice and pulses while it talks
@@ -2056,7 +2067,7 @@ if(VIA_SERVER)setInterval(()=>{const want=!jv.hidden&&micOn&&(mode==="idle"||mod
   fetch("/api/jarvis"+(want?"?listen=1":"")).then(r=>r.json()).then(j=>{
     if(j.hear!==serverEar){serverEar=!!j.hear;if(serverEar)stopRec();else startRec()}
     if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;if(serverEar)setMode("listen")}
-    if(typeof j.text==="string"&&!jv.hidden&&mode!=="think"&&mode!=="speak"){$("#jv-you").textContent=j.text;ask(j.text)}}).catch(()=>{})},700);
+    if(typeof j.text==="string"&&!jv.hidden&&mode!=="think"&&mode!=="speak"){$("#jv-you").textContent=j.text;ask(j.text)}}).catch(()=>{})},300);
 })();
 </script>
 </body>

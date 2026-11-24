@@ -69,7 +69,7 @@ def open_jarvis(why):
 
 
 SPEECH = 0.03       # boosted loudness that counts as talking
-END_QUIET, NO_SPEECH, MAX_TALK = 0.9, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
+END_QUIET, NO_SPEECH, MAX_TALK = 0.7, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
 
@@ -94,6 +94,42 @@ class Ears:
         segs, _ = self.model.transcribe(audio, language="ar", beam_size=1, vad_filter=True, initial_prompt="يا جارفيس،")
         t = " ".join(s.text.strip() for s in segs).strip()
         return "" if t.strip(" .،") in JUNK else t
+
+
+def voice_server():
+    """Ryan's voice kept warm on 127.0.0.1:8788 (edge-tts already loaded), so a reply starts ~2 s sooner than starting edge-tts each time."""
+    import asyncio
+    import edge_tts
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Voice(BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            if self.path != "/tts" or not 0 < n <= 20000:
+                return self.send_error(400)
+            text = str(json.loads(self.rfile.read(n)).get("text", ""))[:1500]
+
+            async def speak():
+                out = b""
+                async for c in edge_tts.Communicate(text, "en-GB-RyanNeural", pitch="-6Hz").stream():
+                    if c["type"] == "audio":
+                        out += c["data"]
+                return out
+            try:
+                audio = asyncio.run(speak())
+            except Exception:
+                return self.send_error(502)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.end_headers()
+            self.wfile.write(audio)
+
+        def log_message(self, *a):
+            pass
+    try:
+        ThreadingHTTPServer(("127.0.0.1", 8788), Voice).serve_forever()
+    except OSError as e:
+        log(f"voice server: {e}")
 
 
 def post_text(text):
@@ -129,6 +165,7 @@ def main():
     model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
     ears = Ears()
     threading.Thread(target=ears.load, daemon=True).start()
+    threading.Thread(target=voice_server, daemon=True).start()
     room, claps, last, n = 0.02, [], 0.0, 0
     talk = None  # while recording a request: {"frames", "t0", "spoke", "quiet", "wake"}
     with sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK) as mic:
