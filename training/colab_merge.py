@@ -2,7 +2,7 @@
 # Result: /content/drive/MyDrive/weblume_model/weblume.gguf  (~4.7 GB, Q4_K_M)
 import os, subprocess, glob, shutil
 def sh(c):
-    print('$', c); r = subprocess.run(c, shell=True)
+    print('$', c); r = subprocess.run(['bash', '-o', 'pipefail', '-c', c])  # pipefail: a failed build behind '| tail' must stop the script
     if r.returncode: raise SystemExit('FAILED: ' + c)
 
 from google.colab import drive
@@ -18,7 +18,7 @@ W = '/content/w'; os.makedirs(W, exist_ok=True); os.chdir(W)
 if not os.path.exists('llama.cpp/build/bin/llama-quantize'):
     sh('git clone --depth 1 https://github.com/ggml-org/llama.cpp')
     sh('cmake -S llama.cpp -B llama.cpp/build -DLLAMA_CURL=OFF -DGGML_NATIVE=ON -DCMAKE_BUILD_TYPE=Release >/dev/null')
-    sh('cmake --build llama.cpp/build -j --target llama-export-lora llama-quantize llama-completion 2>&1 | tail -3')
+    sh('cmake --build llama.cpp/build -j --target llama-export-lora llama-quantize 2>&1 | tail -3')
     sh('pip -q install -r llama.cpp/requirements/requirements-convert_hf_to_gguf.txt huggingface_hub')
 BIN = W + '/llama.cpp/build/bin/'
 
@@ -34,11 +34,7 @@ os.remove('base-f16.gguf')
 sh(f'{BIN}llama-quantize merged-f16.gguf weblume.gguf Q4_K_M {os.cpu_count()}')
 os.remove('merged-f16.gguf')
 
-# 4) quick style check: should start with "تمام! ده موقع ... كامل في ملف واحد 👇"
-SYS = 'اسمك Weblume AI، مساعد شركة Weblume لعمل المواقع. انت مبرمج Full-Stack محترف ومصمم واجهات مبدع، بتتكلم مصري بسيط وودود، والمستخدم ممكن يكون مبتدئ.\n- لو ماحددش لغة برمجة: اكتب موقع HTML واحد كامل فيه CSS وJS، شغال على الموبايل، من غير مكتبات لازمة.\n- التصميم لازم يبقى مبتكر واحترافي: هوية بصرية خاصة بالمشروع، خطوط Google Fonts مميزة، مسافات مريحة، أنيميشن ناعم، وتفاصيل صغيرة تفرق. ممنوع التصميم العادي المكرر.\n- النصوص حقيقية ومقنعة بلغة الموقع، ومن غير Lorem ipsum. العربي RTL.\n- في التعديل: نفّذ المطلوب بالظبط من غير ما تبوّظ باقي الموقع، ورجّع الملف كامل بعد التعديل.\n- اكتب الكود جوه ```html وبعده نقط قصيرة باللي عملته.\n- ماتكتبش أرقام تليفونات من عندك؛ لو مش متاحة حط مكانها واضح للتعديل.'
-p = f"<|im_start|>system\n{SYS}<|im_end|>\n<|im_start|>user\nاعملي موقع لمحل حلويات في المعادي<|im_end|>\n<|im_start|>assistant\n"
-open('p.txt', 'w').write(p)
-subprocess.run(f'{BIN}llama-completion -m weblume.gguf -f p.txt -n 150 --temp 0.3 2>/dev/null', shell=True)
+# 4) style check: test it in Ollama on the laptop (llama-completion is not a target in current llama.cpp)
 
 # 5) save to Drive
 sh(f'cp weblume.gguf "{OUT}/weblume.gguf"')
