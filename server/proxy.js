@@ -142,7 +142,7 @@ function forgetMemory(texts){
   if(!Array.isArray(texts)||!texts.length||texts.length>MAX_NOTES||!texts.every(t=>typeof t==="string"))return{code:400,body:{error:"ابعت قايمة بنصوص الملاحظات اللي هتتمسح."}};
   const drop=new Set(texts.map(t=>t.trim())),notes=readMemory(),keep=notes.filter(n=>!drop.has(n.text));
   fs.writeFileSync(MEMORY_FILE(),JSON.stringify({notes:keep},null,1),{mode:0o600});return{code:200,body:{removed:notes.length-keep.length,left:keep.length}}}
-let jvSeen=0,jvWant=false;
+let jvSeen=0,jvWant=false,jvText=null,jvListen=0,jvEar=0;
 const server=http.createServer(async(req,res)=>{
   try{
     const p=new URL(req.url,"http://x").pathname,m=req.method;
@@ -210,8 +210,12 @@ const server=http.createServer(async(req,res)=>{
       if(!ok||!fs.existsSync(out))return send(res,502,{error:"الصوت مش راضي يطلع (edge-tts محتاج نت)."});
       const buf=fs.readFileSync(out);fs.unlink(out,()=>{});res.writeHead(200,{...baseHeaders,"Content-Type":"audio/mpeg"});return res.end(buf)}
     // two claps / "Hey Jarvis" (desktop/jarvis_listener.py): an open page picks the request up on its next poll; with no page, the listener opens a window
-    if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();const o=jvWant;jvWant=false;return send(res,200,{open:o})}
-      if(m==="POST"){const page=Date.now()-jvSeen<4000;if(page)jvWant=true;return send(res,200,{page})}
+    // the listener's ears (Whisper on the GPU): it asks here whether the page waits for speech, and posts what it heard to /api/jarvis
+    if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen})}
+    if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();if(qs.get("listen")==="1")jvListen=Date.now()+2500;
+        const o={open:jvWant,text:jvText,hear:Date.now()-jvEar<3000};jvWant=false;jvText=null;return send(res,200,o)}
+      if(m==="POST"){const b=await readBody(req);if(typeof b.text==="string"){jvText=b.text.trim().slice(0,1000);jvListen=0;return send(res,200,{ok:true})}
+        const page=Date.now()-jvSeen<4000;if(page)jvWant=true;return send(res,200,{page})}
       return send(res,405,{error:"Method غير مسموح."})}
     send(res,404,{error:"مش موجود."});
   }catch(e){send(res,e.code&&e.code>=400&&e.code<500?e.code:500,{error:e.code?e.message:"خطأ داخلي في السيرفر."})}

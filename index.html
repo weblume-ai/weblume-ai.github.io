@@ -1979,7 +1979,7 @@ jv.innerHTML='<span class="jv-brand">Phai<b>nora</b> · Jarvis</span><canvas id=
   +'<div class="jv-bar"><button type="button" id="jv-mic" aria-label="الميكروفون" aria-pressed="false">🎙</button><input id="jv-type" placeholder="اتكلم أو اكتب هنا…" aria-label="اكتب لـ Jarvis"><button type="button" id="jv-x" aria-label="اقفل Jarvis">✕</button></div>';
 document.body.appendChild(jv);
 const S={idle:"قول «يا جارفيس» وبعدها طلبك",listen:"سامعك…",think:"بيشتغل…",speak:"بيتكلم…",ask:"محتاج موافقتك",off:"الميكروفون مقفول، اكتب تحت أو دوس 🎙",nosr:"المتصفح ده مش بيدعم السمع. افتح البرنامج من الأيقونة (Edge) أو اكتب تحت."};
-let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null;
+let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null,serverEar=false;
 const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
 
 // the voice: a deep male "Jarvis" voice: Edge's natural Egyptian Shakir, else any natural Egyptian voice, else any Arabic voice
@@ -1999,13 +1999,13 @@ function sayBrowser(t,after){
 // after it answers it keeps listening for a follow-up for a few seconds without the wake word
 function done(){awake=Date.now()+9000;setMode(micOn?"idle":"off");startRec()}
 
-function startRec(){if(!SR||!micOn||rec||jv.hidden||mode==="speak"||mode==="think")return;
+function startRec(){if(!SR||!micOn||rec||jv.hidden||mode==="speak"||mode==="think"||serverEar)return;
   rec=new SR();rec.lang="ar-EG";rec.continuous=true;rec.interimResults=true;
   rec.onresult=e=>{let fin="",tmp="";for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];r.isFinal?fin+=r[0].transcript:tmp+=r[0].transcript}
     const open=Date.now()<awake;
     if(tmp&&(open||WAKE.test(tmp))){$("#jv-you").textContent=tmp.replace(WAKE,"");if(mode==="idle")setMode("listen")}
     fin=fin.trim();if(!fin||!(open||WAKE.test(fin)))return;
-    const q=fin.replace(WAKE,"").trim();if(!q){awake=Date.now()+9000;say("أيوه، سامعك.");return}ask(q)};
+    const q=fin.replace(WAKE,"").trim();if(!q){awake=Date.now()+9000;say("Yes, sir?");return}ask(q)};
   rec.onend=()=>{rec=null;if(micOn&&!jv.hidden&&mode!=="speak"&&mode!=="think")setTimeout(startRec,300)};
   rec.onerror=e=>{if(/not-allowed|service-not-allowed/.test(e.error)){toggleMic(false);$("#jv-say").textContent="اسمح للميكروفون (علامة القفل فوق) أو اكتب تحت."}};
   try{rec.start()}catch(e){rec=null}}
@@ -2017,7 +2017,7 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
   setMode("idle");startRec()}
 
 // a request goes into the normal chat; the spoken answer is the chat's final text
-function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("أيوه، سامعك.");return} // only its name: answer and wait
+function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
   if(busy){say("لسه شغال على اللي قبله، ثانية واحدة.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");$("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
@@ -2050,7 +2050,13 @@ $("#jv-type").onkeydown=e=>{if(e.key==="Enter"&&e.target.value.trim()){const q=e
 addEventListener("keydown",e=>{if(e.ctrlKey&&(e.key==="j"||e.key==="J"||e.code==="KeyJ")){e.preventDefault();jv.hidden?open_():close_()}else if(e.key==="Escape"&&!jv.hidden)close_()});
 addEventListener("resize",()=>{if(!jv.hidden)fitOrb()});
 if(/[?&#]jarvis\b/.test(location.search+location.hash))open_(); // the desktop shortcut opens straight into Jarvis
-if(VIA_SERVER)setInterval(()=>fetch("/api/jarvis").then(r=>r.json()).then(j=>{if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;say("أيوه، سامعك.")}}).catch(()=>{}),1500); // two claps / "Hey Jarvis"
+// the listener (desktop/jarvis_listener.py) opens Jarvis on two claps / "Hey Jarvis" and hears with Whisper on the GPU;
+// while it runs, the page asks it to listen whenever Jarvis waits for you, instead of the browser's own recognition
+if(VIA_SERVER)setInterval(()=>{const want=!jv.hidden&&micOn&&(mode==="idle"||mode==="listen")&&Date.now()<awake; // only right after it was called or answered
+  fetch("/api/jarvis"+(want?"?listen=1":"")).then(r=>r.json()).then(j=>{
+    if(j.hear!==serverEar){serverEar=!!j.hear;if(serverEar)stopRec();else startRec()}
+    if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;if(serverEar)setMode("listen")}
+    if(typeof j.text==="string"&&!jv.hidden&&mode!=="think"&&mode!=="speak"){$("#jv-you").textContent=j.text;ask(j.text)}}).catch(()=>{})},700);
 })();
 </script>
 </body>
