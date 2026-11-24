@@ -4,7 +4,7 @@ The microphone audio stays on this laptop: it's kept in memory only while you ta
 Runs from Windows startup (Jarvis only, light): the app's small server starts only when Jarvis is called,
 without the company server or the full Phainora AI window.
   python jarvis_listener.py --test   prints the live levels, to tune CLAP_PEAK for your mic"""
-import ctypes, json, os, re, secrets, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
+import collections, ctypes, json, os, queue, re, secrets, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 import numpy as np
 import sounddevice as sd
@@ -68,8 +68,9 @@ def open_jarvis(why):
         subprocess.call(f'start "" chrome --app="{u}" --window-size=1280,860', shell=True)
 
 
+PRE_ROLL = 8       # blocks (80 ms each) kept from before a request starts
 SPEECH = 0.002      # raw loudness that counts as talking: NVIDIA Broadcast mutes the room (~0.00002) and keeps the voice quiet (~0.005)
-END_QUIET, NO_SPEECH, MAX_TALK = 0.6, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
+END_QUIET, NO_SPEECH, MAX_TALK = 1.0, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
 
@@ -438,51 +439,82 @@ def main():
     threading.Thread(target=voice_server, daemon=True).start()
     room, claps, last, n = 0.02, [], 0.0, 0
     talk = None  # while recording a request: {"frames", "t0", "spoke", "quiet", "wake"}
-    with sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK) as mic:
-        while True:
-            block, _ = mic.read(CHUNK)
-            pcm = block[:, 0]
-            x = pcm.astype(np.float32) / 32768
-            peak, rms = float(np.abs(x).max()), float(np.sqrt((x * x).mean()))
-            now, n = time.time(), n + 1
-            # NVIDIA Broadcast hands over a quiet voice (peaks under 0.15), too quiet for the models: boost it first
-            loud = np.clip(pcm.astype(np.int32) * GAIN, -32768, 32767).astype(np.int16)
-            if talk is not None:  # recording what you say to Jarvis
-                talk["frames"].append(pcm.copy())  # the untouched sound for Whisper; it's evened out once at the end
-                if rms > max(SPEECH, 2.5 * room):
-                    talk["spoke"], talk["quiet"] = talk["spoke"] or now, now
-                age = now - talk["t0"]
-                if (talk["spoke"] and now - talk["quiet"] > END_QUIET) or age > MAX_TALK or (not talk["spoke"] and age > NO_SPEECH):
-                    heard = ears.text(talk["frames"]) if talk["spoke"] else ""
-                    log(f"heard: {heard!r}")
-                    if heard or talk["wake"]:
-                        post_text(heard)  # only its name: the page answers "Yes, sir?" and waits
-                    talk, last = None, time.time()
-                continue
-            if ears.model and n % 7 == 0 and page_waits():  # Jarvis answered and waits for your reply
-                talk = {"frames": [], "t0": now, "spoke": None, "quiet": now, "wake": False}
-                continue
-            score = model.predict(loud).get("hey_jarvis", 0)
-            clap = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room
-            if not clap:
-                room = 0.98 * room + 0.02 * rms  # slow average of the room's level
-            if TEST:
-                print(f"peak {peak:.2f}  room {room:.3f}  jarvis {score:.2f}" + ("  CLAP" if clap else ""), flush=True)
-            if score > 0.05 or peak > 0.05:
-                log(f"peak {peak:.2f} room {room:.3f} jarvis {score:.2f}" + (" CLAP" if clap else ""))
-            if clap and (not claps or now - claps[-1] > 0.15):
-                claps = (claps + [now])[-3:]
-                if is_double_clap(claps, now) and now - last > COOLDOWN:
-                    last, claps = now, []
-                    open_jarvis("two claps")
-                    if ears.model:
-                        talk = {"frames": [], "t0": time.time(), "spoke": None, "quiet": time.time(), "wake": True}
-            if score > WAKE_SCORE and now - last > COOLDOWN:
-                last = now
-                model.reset()
-                open_jarvis(f"hey jarvis {score:.2f}")
-                if ears.model:  # "Hey Jarvis, what's the weather": the request right after the name
-                    talk = {"frames": [], "t0": time.time(), "spoke": None, "quiet": time.time(), "wake": True}
+    before = collections.deque(maxlen=PRE_ROLL)  # the last ~0.6 s, so the first word of a request isn't cut
+    start = lambda wake: {"frames": list(before), "t0": time.time(), "spoke": None, "quiet": time.time(), "wake": wake}
+    blocks = queue.Queue()
+    while True:  # the mic stream, reopened whenever it stalls (another app grabbing the mic froze it on 2026-11-25)
+        try:
+            mic = sd.InputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK,
+                                 callback=lambda data, *_: blocks.put(data[:, 0].copy()))
+            mic.start()
+        except Exception as e:
+            log(f"mic: {e}")
+            time.sleep(3)
+            continue
+        try:
+            while True:
+                try:
+                    pcm = blocks.get(timeout=2)
+                except queue.Empty:
+                    log("mic stalled, reopening")
+                    break
+                try:
+                    talk, room, claps, last, n = hear(pcm, talk, room, claps, last, n, model, ears, before, start)
+                except Exception as e:  # one bad block never stops the listener
+                    log(f"error: {e}")
+                    talk = None
+        finally:
+            try:
+                mic.close()
+            except Exception:
+                pass
+
+
+def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
+    """One 80 ms block: record a request, or watch for two claps / "Hey Jarvis"."""
+    x = pcm.astype(np.float32) / 32768
+    peak, rms = float(np.abs(x).max()), float(np.sqrt((x * x).mean()))
+    now, n = time.time(), n + 1
+    # NVIDIA Broadcast hands over a quiet voice (peaks under 0.15), too quiet for the models: boost it first
+    loud = np.clip(pcm.astype(np.int32) * GAIN, -32768, 32767).astype(np.int16)
+    if talk is not None:  # recording what you say to Jarvis
+        talk["frames"].append(pcm.copy())  # the untouched sound for Whisper; it's evened out once at the end
+        if rms > max(SPEECH, 2.5 * room):
+            talk["spoke"], talk["quiet"] = talk["spoke"] or now, now
+        age = now - talk["t0"]
+        if (talk["spoke"] and now - talk["quiet"] > END_QUIET) or age > MAX_TALK or (not talk["spoke"] and age > NO_SPEECH):
+            heard = ears.text(talk["frames"]) if talk["spoke"] else ""
+            log(f"heard: {heard!r}")
+            if heard or talk["wake"]:
+                post_text(heard)  # only its name: the page answers "Yes, sir?" and waits
+            talk, last = None, time.time()
+        return talk, room, claps, last, n
+    before.append(pcm.copy())
+    if ears.model and n % 4 == 0 and page_waits():  # Jarvis answered and waits for your reply
+        return start(False), room, claps, last, n
+    score = model.predict(loud).get("hey_jarvis", 0)
+    clap = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room
+    if not clap:
+        room = 0.98 * room + 0.02 * rms  # slow average of the room's level
+    if TEST:
+        print(f"peak {peak:.2f}  room {room:.3f}  jarvis {score:.2f}" + ("  CLAP" if clap else ""), flush=True)
+    if score > 0.05 or peak > 0.05:
+        log(f"peak {peak:.2f} room {room:.3f} jarvis {score:.2f}" + (" CLAP" if clap else ""))
+    if clap and (not claps or now - claps[-1] > 0.15):
+        claps = (claps + [now])[-3:]
+        if is_double_clap(claps, now) and now - last > COOLDOWN:
+            last, claps = now, []
+            open_jarvis("two claps")
+            if ears.model:
+                before.clear()  # the claps themselves aren't part of the request
+                talk = start(True)
+    if score > WAKE_SCORE and now - last > COOLDOWN:
+        last = now
+        model.reset()
+        open_jarvis(f"hey jarvis {score:.2f}")
+        if ears.model:  # "Hey Jarvis, what's the weather": the request right after the name (the name is in the pre-roll; ask() drops it)
+            talk = start(True)
+    return talk, room, claps, last, n
 
 
 assert is_double_clap([1.0, 1.4], 1.4) and not is_double_clap([1.0, 2.5], 2.5) and not is_double_clap([1.4], 1.4)

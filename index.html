@@ -1979,7 +1979,7 @@ jv.innerHTML='<span class="jv-brand">Phai<b>nora</b> · Jarvis</span><canvas id=
   +'<div class="jv-bar"><button type="button" id="jv-mic" aria-label="الميكروفون" aria-pressed="false">🎙</button><input id="jv-type" placeholder="اتكلم أو اكتب هنا…" aria-label="اكتب لـ Jarvis"><button type="button" id="jv-x" aria-label="اقفل Jarvis">✕</button></div>';
 document.body.appendChild(jv);
 const S={idle:"قول «يا جارفيس» وبعدها طلبك",listen:"سامعك…",think:"بيشتغل…",speak:"بيتكلم…",ask:"محتاج موافقتك",off:"الميكروفون مقفول، اكتب تحت أو دوس 🎙",nosr:"المتصفح ده مش بيدعم السمع. افتح البرنامج من الأيقونة (Edge) أو اكتب تحت."};
-let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null,serverEar=false;
+let mode="idle",awake=0,rec=null,micOn=false,level=0,pulse=0,stream=null,an=null,reply="",answer=null,serverEar=false,polled=false;
 const setMode=m=>{mode=m;$("#jv-state").textContent=S[m]};
 
 // backup voice when the server's Ryan isn't reachable: Edge's own Ryan, else any British, else any English voice (Jarvis never speaks Arabic)
@@ -2016,6 +2016,8 @@ function startRec(){if(!SR||!micOn||rec||jv.hidden||mode==="speak"||mode==="thin
 function stopRec(){const r=rec;rec=null;if(r){r.onend=null;try{r.abort()}catch(e){}}}
 async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("#jv-mic").setAttribute("aria-pressed",on);
   if(!on){stopRec();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;an=null}setMode("off");return}
+  // the listener's ears (Whisper) own the mic while they run: the page taking it too stalled the listener's stream
+  for(let i=0;i<10&&!polled&&VIA_SERVER;i++)await new Promise(r=>setTimeout(r,150));if(serverEar){setMode("idle");return}
   if(!SR){setMode("nosr");return}
   try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const ac=new AudioContext();an=ac.createAnalyser();an.fftSize=512;ac.createMediaStreamSource(stream).connect(an)}catch(e){toggleMic(false);$("#jv-say").textContent="مفيش إذن للميكروفون. اسمح بيه أو اكتب تحت.";return}
   setMode("idle");startRec()}
@@ -2079,7 +2081,7 @@ function fitOrb(){size=Math.min(innerWidth*.9,innerHeight*.5);const d=devicePixe
 const still=matchMedia("(prefers-reduced-motion: reduce)").matches;
 function draw(){if(jv.hidden)return;t+=1/60;
   if(an){an.getByteTimeDomainData(buf);let m=0;for(const v of buf)m=Math.max(m,Math.abs(v-128));level=level*.7+m/128*.3}
-  const act=mode==="listen"?Math.min(1,.15+level*3):mode==="speak"?.55+.4*Math.sin(t*9)*Math.sin(t*3.7):mode==="think"?.25:.05;
+  const act=mode==="listen"?Math.min(1,(an?.15+level*3:.3+.15*Math.sin(t*5))):mode==="speak"?.55+.4*Math.sin(t*9)*Math.sin(t*3.7):mode==="think"?.25:.05;
   pulse+=(act-pulse)*.12;const c=size/2,R=size*.25,sp=still?0:mode==="think"?2.6:.45,calm=mode==="idle"||mode==="off"||mode==="nosr";
   cx.clearRect(0,0,size,size);cx.lineCap="round";
   let g=cx.createRadialGradient(c,c,R*.2,c,c,R*1.9);g.addColorStop(0,"rgba(60,170,255,"+(.16+pulse*.22)+")");g.addColorStop(1,"rgba(20,80,200,0)");cx.fillStyle=g;cx.fillRect(0,0,size,size);
@@ -2104,7 +2106,7 @@ if(/[?&#]jarvis\b/.test(location.search+location.hash))open_(); // the desktop s
 // while it runs, the page asks it to listen whenever Jarvis waits for you, instead of the browser's own recognition
 if(VIA_SERVER)setInterval(()=>{const want=!jv.hidden&&micOn&&(mode==="idle"||mode==="listen")&&Date.now()<awake; // only right after it was called or answered
   fetch("/api/jarvis"+(want?"?listen=1":"")).then(r=>r.json()).then(j=>{
-    if(j.hear!==serverEar){serverEar=!!j.hear;if(serverEar)stopRec();else startRec()}
+    polled=true;if(j.hear!==serverEar){serverEar=!!j.hear;if(serverEar){stopRec();if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;an=null}}else startRec()}
     if(j.open){open_();try{window.focus()}catch(e){}awake=Date.now()+9000;if(serverEar)setMode("listen")}
     if(typeof j.text==="string"&&!jv.hidden&&mode!=="think"&&mode!=="speak"){$("#jv-you").textContent=j.text;ask(j.text)}}).catch(()=>{})},300);
 })();
