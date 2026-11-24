@@ -2020,12 +2020,27 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
 
 // small talk goes straight to Groq with a short prompt (~0.5 s; the full agent's prompt is too big for Groq's free tier and falls back to slower models);
 // real work (a site, code, a file, a long text) goes into the normal chat, with its tools and approvals
-const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. If he asks for something you can't do from here, say so in one sentence.";
+const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You can act on his PC with the tools: open apps, websites and folders, search Google or YouTube, and media keys. When he asks you to open or play something, call the tool, then confirm in a few words. You can't delete, send, buy or type for him; say so if asked.";
 const jvHist=[];
+// Jarvis's hands on this PC, run by the listener through the server (open only, no deleting / sending / typing)
+const JV_TOOLS=[["open_app","Open an installed app or a well-known site by its English name (chrome, spotify, discord, whatsapp, calculator, settings, vscode, youtube, gmail...)."],
+  ["open_website","Open a website by its address, e.g. weblume-sa.github.io."],["search_google","Search Google."],["search_youtube","Search YouTube (to play a song or video)."],
+  ["open_folder","Open a folder: downloads, desktop, documents, pictures, videos, music or projects."],["media","Media key: play_pause, next, previous, volume_up, volume_down or mute."]]
+  .map(([name,description])=>({type:"function",function:{name,description,parameters:{type:"object",properties:{arg:{type:"string"}},required:["arg"]}}}));
 async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
-  try{const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
-      body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,messages:[{role:"system",content:JV_SYS},...jvHist.slice(-8),{role:"user",content:q}]})});
-    const a=r.ok?((await r.json()).choices||[{}])[0].message.content||"":"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a}catch(e){return ""}}
+  const msgs=[{role:"system",content:JV_SYS},...jvHist.slice(-8),{role:"user",content:q}];
+  try{for(let round=0;round<3;round++){
+      const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
+        body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,tools:JV_TOOLS,messages:msgs})});
+      if(!r.ok)return "";const m=((await r.json()).choices||[{}])[0].message||{};
+      if(m.tool_calls&&m.tool_calls.length){msgs.push({role:"assistant",content:m.content||"",tool_calls:m.tool_calls});
+        for(const c of m.tool_calls){let arg="";try{arg=JSON.parse(c.function.arguments||"{}").arg}catch(e){}
+          $("#jv-say").textContent="⚙ "+c.function.name+" "+(arg||"");
+          const d=await fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:c.function.name,arg})}).then(x=>x.json()).catch(()=>({error:"no listener"}));
+          msgs.push({role:"tool",tool_call_id:c.id,content:d.result||d.error||"failed"})}
+        continue}
+      const a=m.content||"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a}}catch(e){}
+  return ""}
 async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
   if(busy){say("One moment, sir, I'm still on the last one.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");
@@ -2038,20 +2053,27 @@ addEventListener("wl-done",()=>{if(jv.hidden)return;$("#jv-ask").hidden=true;ans
 addEventListener("wl-confirm",e=>{if(jv.hidden)return;answer=e.detail.answer;const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+e.detail.text;b.hidden=false;setMode("ask");say("I need your approval before I go on, sir. Press yes or no.",()=>setMode("ask"));b.querySelector(".pri").focus()});
 $("#jv-ask").addEventListener("click",e=>{const b=e.target.closest("button");if(!b||!answer)return;answer(b.dataset.a==="1");answer=null;$("#jv-ask").hidden=true;setMode("think")});
 
-// the orb: a glowing blue core, rings and drifting sparks; it swells with your voice and pulses while it talks
-const cv=$("#jv-orb"),cx=cv.getContext("2d"),buf=new Uint8Array(512);let t=0,size=0;
-const dots=Array.from({length:150},()=>({a:Math.random()*6.283,r:Math.random(),s:.3+Math.random(),z:Math.random()}));
+// the HUD: a thin glowing ring, sound bars around it (your voice while it listens, a wave while it talks),
+// thin arcs that spin faster while it thinks, and a fine tick ring
+const cv=$("#jv-orb"),cx=cv.getContext("2d"),buf=new Uint8Array(512),N_BARS=120,bars=new Float32Array(N_BARS);let t=0,size=0;
+function arcs(c,r,rot,starts,len,w,col){cx.lineWidth=w;cx.strokeStyle=col;for(const s of starts){cx.beginPath();cx.arc(c,c,r,rot+s,rot+s+len);cx.stroke()}}
+function spoke(c,a,r0,r1){cx.beginPath();cx.moveTo(c+Math.cos(a)*r0,c+Math.sin(a)*r0);cx.lineTo(c+Math.cos(a)*r1,c+Math.sin(a)*r1);cx.stroke()}
 function fitOrb(){size=Math.min(innerWidth*.9,innerHeight*.5);const d=devicePixelRatio||1;cv.style.width=cv.style.height=size+"px";cv.width=cv.height=size*d;cx.setTransform(d,0,0,d,0,0)}
 const still=matchMedia("(prefers-reduced-motion: reduce)").matches;
 function draw(){if(jv.hidden)return;t+=1/60;
   if(an){an.getByteTimeDomainData(buf);let m=0;for(const v of buf)m=Math.max(m,Math.abs(v-128));level=level*.7+m/128*.3}
-  const goal=mode==="listen"?.12+level*1.8:mode==="speak"?.3+Math.abs(Math.sin(t*8))*.28:mode==="think"?.22+Math.sin(t*3)*.08:.08+Math.sin(t*1.4)*.04;
-  pulse+=(goal-pulse)*.15;const c=size/2,R=size*.2*(1+pulse*.35),spin=still?0:mode==="think"?2:.4;
-  cx.clearRect(0,0,size,size);
-  let g=cx.createRadialGradient(c,c,R*.3,c,c,R*2.3);g.addColorStop(0,"rgba(70,150,255,.5)");g.addColorStop(.5,"rgba(30,100,230,.15)");g.addColorStop(1,"rgba(30,100,230,0)");cx.fillStyle=g;cx.fillRect(0,0,size,size);
-  cx.lineWidth=1.4;for(let k=0;k<3;k++){cx.strokeStyle="rgba(255,255,255,"+(.22-k*.05)+")";cx.beginPath();cx.ellipse(c,c,R*(1.45+k*.3)*(1+pulse*.2),R*(.42+k*.14),t*spin*(k%2?-.5:.35)+k,0,6.283);cx.stroke()}
-  g=cx.createRadialGradient(c-R*.35,c-R*.35,R*.08,c,c,R);g.addColorStop(0,"#ffffff");g.addColorStop(.22,"#7dbcff");g.addColorStop(.68,"#1554c8");g.addColorStop(1,"#020b26");cx.fillStyle=g;cx.beginPath();cx.arc(c,c,R,0,6.283);cx.fill();
-  for(const d of dots){d.a+=.003*d.s*(spin+.2)*(1+pulse*2);const rr=R*(1.3+d.r*.95+pulse*.5*d.z);cx.fillStyle="rgba("+(110+d.z*130|0)+","+(170+d.z*85|0)+",255,"+(.25+d.z*.6)+")";cx.beginPath();cx.arc(c+Math.cos(d.a)*rr,c+Math.sin(d.a)*rr*.9,.8+d.z*1.8,0,6.283);cx.fill()}
+  const act=mode==="listen"?Math.min(1,.15+level*3):mode==="speak"?.55+.4*Math.sin(t*9)*Math.sin(t*3.7):mode==="think"?.25:.05;
+  pulse+=(act-pulse)*.12;const c=size/2,R=size*.25,sp=still?0:mode==="think"?2.6:.45,calm=mode==="idle"||mode==="off"||mode==="nosr";
+  cx.clearRect(0,0,size,size);cx.lineCap="round";
+  let g=cx.createRadialGradient(c,c,R*.2,c,c,R*1.9);g.addColorStop(0,"rgba(60,170,255,"+(.16+pulse*.22)+")");g.addColorStop(1,"rgba(20,80,200,0)");cx.fillStyle=g;cx.fillRect(0,0,size,size);
+  for(let i=0;i<N_BARS;i++){const a=i/N_BARS*6.283-1.5708,n=.5+.5*Math.sin(i*.9+t*4)*Math.sin(i*.37-t*2.3);
+    bars[i]+=((calm?.03+.025*n:.06+n*pulse*.55)-bars[i])*.25;cx.strokeStyle="rgba("+(120+n*80|0)+","+(205+n*45|0)+",255,"+(.3+bars[i]*1.1)+")";cx.lineWidth=Math.max(1.2,size*.004);spoke(c,a,R*1.1,R*(1.1+bars[i]*.95))}
+  cx.lineWidth=size*.007;cx.strokeStyle="#62d6ff";cx.shadowColor="#2fb2ff";cx.shadowBlur=18+pulse*30;cx.beginPath();cx.arc(c,c,R,0,6.283);cx.stroke();cx.shadowBlur=0;
+  arcs(c,R*.86,t*sp,[0,1.15,2.45,3.65,4.95],.55,size*.004,"rgba(130,215,255,.75)");
+  arcs(c,R*.73,-t*sp*1.4,[.5,2.2,4],.9,size*.003,"rgba(90,170,255,.45)");
+  cx.lineWidth=1;cx.strokeStyle="rgba(120,200,255,.22)";for(let i=0;i<72;i++)spoke(c,i/72*6.283+t*.04,R*1.78,R*(i%6?1.82:1.88));
+  g=cx.createRadialGradient(c,c,0,c,c,R*.6);g.addColorStop(0,"rgba(205,242,255,"+(.5+pulse*.45)+")");g.addColorStop(.35,"rgba(80,180,255,.3)");g.addColorStop(1,"rgba(20,60,160,0)");
+  cx.fillStyle=g;cx.beginPath();cx.arc(c,c,R*.6*(1+pulse*.12),0,6.283);cx.fill();
   requestAnimationFrame(draw)}
 
 function open_(){jv.hidden=false;fitOrb();setMode(SR?"off":"nosr");requestAnimationFrame(draw);$("#jv-type").focus();if(SR)toggleMic(true)}

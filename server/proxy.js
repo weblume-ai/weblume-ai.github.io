@@ -212,6 +212,12 @@ const server=http.createServer(async(req,res)=>{
       if(!ok||!fs.existsSync(out))return send(res,502,{error:"الصوت مش راضي يطلع (edge-tts محتاج نت)."});
       const buf=fs.readFileSync(out);fs.unlink(out,()=>{});res.writeHead(200,{...baseHeaders,"Content-Type":"audio/mpeg"});return res.end(buf)}
     // two claps / "Hey Jarvis" (desktop/jarvis_listener.py): an open page picks the request up on its next poll; with no page, the listener opens a window
+    // Jarvis's hands: open an app / site / folder, search, media keys. Run by the listener; the token file is out of a web page's reach
+    if(m==="POST"&&p==="/api/do"){const b=await readBody(req),action=String(b.action||""),arg=String(b.arg||"").slice(0,200);
+      if(!/^(open_app|open_website|search_google|search_youtube|open_folder|media)$/.test(action))return send(res,400,{error:"Unknown action."});
+      let tok="";try{tok=fs.readFileSync(path.join(ROOT,"desktop",".jarvis-token"),"utf8").trim()}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}
+      try{const w=await fetch("http://127.0.0.1:8788/do",{method:"POST",headers:{"Content-Type":"application/json","X-Jarvis-Token":tok},body:JSON.stringify({action,arg}),signal:AbortSignal.timeout(15000)});
+        return send(res,w.ok?200:502,w.ok?await w.json():{error:"The listener refused."})}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}}
     // the listener's ears (Whisper on the GPU): it asks here whether the page waits for speech, and posts what it heard to /api/jarvis
     if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen})}
     if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();if(qs.get("listen")==="1")jvListen=Date.now()+2500;

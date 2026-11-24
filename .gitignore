@@ -16,3 +16,4 @@ desktop/.venv/
 training/*.gguf
 desktop/jarvis_listener.log
 desktop/voice-samples/
+desktop/.jarvis-token

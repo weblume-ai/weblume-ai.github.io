@@ -4,7 +4,7 @@ The microphone audio stays on this laptop: it's kept in memory only while you ta
 Runs from Windows startup (Jarvis only, light): the app's small server starts only when Jarvis is called,
 without the company server or the full Phainora AI window.
   python jarvis_listener.py --test   prints the live levels, to tune CLAP_PEAK for your mic"""
-import json, os, socket, subprocess, sys, threading, time, urllib.request
+import ctypes, json, os, re, secrets, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 import numpy as np
 import sounddevice as sd
@@ -68,7 +68,7 @@ def open_jarvis(why):
         subprocess.call(f'start "" chrome --app="{u}" --window-size=1280,860', shell=True)
 
 
-SPEECH = 0.03       # boosted loudness that counts as talking
+SPEECH = 0.002      # raw loudness that counts as talking: NVIDIA Broadcast mutes the room (~0.00002) and keeps the voice quiet (~0.005)
 END_QUIET, NO_SPEECH, MAX_TALK = 0.7, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
@@ -91,9 +91,87 @@ class Ears:
 
     def text(self, frames):
         audio = np.concatenate(frames).astype(np.float32) / 32768
-        segs, _ = self.model.transcribe(audio, language="ar", beam_size=1, vad_filter=True, initial_prompt="يا جارفيس،")
+        audio *= 0.9 / max(float(np.abs(audio).max()), 1e-4)  # even out a quiet mic without clipping (a fixed boost distorted Arabic)
+        segs, _ = self.model.transcribe(audio, language="ar", beam_size=5, vad_filter=True,
+                                        initial_prompt="يا جارفيس، سامعني؟ افتح جوجل. Jarvis, what's the weather?")
         t = " ".join(s.text.strip() for s in segs).strip()
         return "" if t.strip(" .،") in JUNK else t
+
+
+# ---- hands: what Jarvis may do on this PC. Only opening and media keys: nothing that deletes, sends, buys or types for you.
+TOKEN = secrets.token_hex(16)  # the app's server reads it from .jarvis-token; a web page can't, so no site can drive these
+APPS = {"chrome": "chrome", "edge": "msedge", "notepad": "notepad", "calculator": "calc", "paint": "mspaint",
+        "explorer": "explorer", "file explorer": "explorer", "settings": "ms-settings:", "task manager": "taskmgr",
+        "spotify": "spotify:", "whatsapp": "whatsapp:", "discord": "discord:", "camera": "microsoft.windows.camera:"}
+SITES = {"youtube": "https://www.youtube.com", "google": "https://www.google.com", "gmail": "https://mail.google.com",
+         "facebook": "https://www.facebook.com", "instagram": "https://www.instagram.com", "tiktok": "https://www.tiktok.com",
+         "chatgpt": "https://chatgpt.com", "github": "https://github.com", "netflix": "https://www.netflix.com"}
+FOLDERS = {"downloads": "Downloads", "desktop": "Desktop", "documents": "Documents", "pictures": "Pictures",
+           "videos": "Videos", "music": "Music", "projects": r"Downloads\Projects"}
+KEYS = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD}
+
+
+def find_app(name):
+    """The Start menu shortcut whose name best matches (installed programs only)."""
+    name = name.lower().strip()
+    roots = [Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs",
+             Path(os.environ.get("PROGRAMDATA", "")) / r"Microsoft\Windows\Start Menu\Programs",
+             Path.home() / "Desktop", Path.home() / r"OneDrive\Documentos\Desktop"]
+    best = None
+    for root in roots:
+        for lnk in root.rglob("*.lnk") if root.exists() else []:
+            stem = lnk.stem.lower()
+            if "uninstall" in stem:
+                continue
+            score = 3 if stem == name else 2 if stem.startswith(name) else 1 if name in stem else 0
+            if score and (best is None or score > best[0] or (score == best[0] and len(stem) < len(best[1].stem))):
+                best = (score, lnk)
+    return best[1] if best else None
+
+
+def act(action, arg):
+    """Run one Jarvis action; returns what happened, for Jarvis to say."""
+    arg = str(arg or "").strip()[:200]
+    if action == "open_app":
+        key = arg.lower()
+        if key in SITES:
+            return act("open_website", SITES[key])
+        lnk = find_app(arg)
+        target = str(lnk) if lnk else APPS.get(key)
+        if not target:
+            return f"I couldn't find an app called {arg}."
+        os.startfile(target)
+        return f"Opened {lnk.stem if lnk else arg}."
+    if action == "open_website":
+        url = SITES.get(arg.lower(), arg)
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        if not re.match(r"^https?://[\w.-]+\.[a-z]{2,}(/\S*)?$", url, re.I):
+            return "That doesn't look like a website address."
+        os.startfile(url)
+        return f"Opened {url}."
+    if action in ("search_google", "search_youtube"):
+        base = "https://www.google.com/search?q=" if action == "search_google" else "https://www.youtube.com/results?search_query="
+        os.startfile(base + urllib.parse.quote(arg))
+        return f"Searching for {arg}."
+    if action == "open_folder":
+        sub = FOLDERS.get(arg.lower())
+        if not sub:
+            return f"I only open these folders: {', '.join(FOLDERS)}."
+        p = Path.home() / sub
+        if not p.exists() and sub in ("Desktop", "Documents"):
+            p = Path.home() / "OneDrive" / ("Documentos" if sub == "Documents" else r"Documentos\Desktop")
+        os.startfile(str(p))
+        return f"Opened {arg}."
+    if action == "media":
+        vk = KEYS.get(arg.lower())
+        if vk is None:
+            return "Unknown media key."
+        for _ in range(5 if arg.startswith("volume") else 1):
+            ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(vk, 0, 2, 0)
+        return "Done."
+    return "I can't do that yet."
 
 
 def voice_server():
@@ -105,9 +183,23 @@ def voice_server():
     class Voice(BaseHTTPRequestHandler):
         def do_POST(self):
             n = int(self.headers.get("Content-Length") or 0)
-            if self.path != "/tts" or not 0 < n <= 20000:
+            if self.path not in ("/tts", "/do") or not 0 < n <= 20000:
                 return self.send_error(400)
-            text = str(json.loads(self.rfile.read(n)).get("text", ""))[:1500]
+            body = json.loads(self.rfile.read(n))
+            if self.path == "/do":  # only the app's server has the token
+                if not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), TOKEN):
+                    return self.send_error(403)
+                try:
+                    msg = act(str(body.get("action", "")), body.get("arg"))
+                except Exception as e:
+                    msg = f"That didn't work: {e}"
+                log(f"do {body.get('action')} {body.get('arg')!r}: {msg}")
+                out = json.dumps({"result": msg}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                return self.wfile.write(out)
+            text = str(body.get("text", ""))[:1500]
 
             async def speak():
                 out = b""
@@ -165,6 +257,7 @@ def main():
     model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
     ears = Ears()
     threading.Thread(target=ears.load, daemon=True).start()
+    Path(__file__).with_name(".jarvis-token").write_text(TOKEN)
     threading.Thread(target=voice_server, daemon=True).start()
     room, claps, last, n = 0.02, [], 0.0, 0
     talk = None  # while recording a request: {"frames", "t0", "spoke", "quiet", "wake"}
@@ -178,8 +271,8 @@ def main():
             # NVIDIA Broadcast hands over a quiet voice (peaks under 0.15), too quiet for the models: boost it first
             loud = np.clip(pcm.astype(np.int32) * GAIN, -32768, 32767).astype(np.int16)
             if talk is not None:  # recording what you say to Jarvis
-                talk["frames"].append(loud)
-                if rms * GAIN > max(SPEECH, 3 * GAIN * room):
+                talk["frames"].append(pcm.copy())  # the untouched sound for Whisper; it's evened out once at the end
+                if rms > max(SPEECH, 2.5 * room):
                     talk["spoke"], talk["quiet"] = talk["spoke"] or now, now
                 age = now - talk["t0"]
                 if (talk["spoke"] and now - talk["quiet"] > END_QUIET) or age > MAX_TALK or (not talk["spoke"] and age > NO_SPEECH):
