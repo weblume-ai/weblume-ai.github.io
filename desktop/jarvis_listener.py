@@ -110,8 +110,12 @@ class Ears:
         w = threading.Thread(target=whisper, daemon=True) if self.model else None
         if w:
             w.start()
-        t = gemini_text(audio)  # Whisper turns Egyptian into wrong Fusha ("هل يمكنك الابتعاد…"); Gemini keeps what he said
-        if t is None and w:
+        g = {}
+        gt = threading.Thread(target=lambda: g.update(t=gemini_text(audio)), daemon=True)
+        gt.start()
+        gt.join(GEMINI_WAIT + 0.2)  # Whisper turns Egyptian into wrong Fusha ("هل يمكنك الابتعاد…"); Gemini keeps what he said
+        t = g.get("t")
+        if t is None and w:  # Gemini slow or down: don't make him wait, Whisper is ready by now
             w.join(10)
             t = local.get("t", "")
             log("(whisper)")
@@ -121,6 +125,9 @@ class Ears:
         return "" if t.strip(" .،") in JUNK else t
 
 
+GEMINI_WAIT = 3.5  # seconds; Gemini answers in 2-3 s, past that Whisper's text is used
+GEMINI_EARS = ("gemini-3.5-flash", "gemini-flash-lite-latest", "gemini-3.1-flash-lite")
+BUSY = {}
 SETTINGS = Path(__file__).resolve().parent.parent / "weblume-settings.json"  # the app's saved keys (git-ignored)
 EARS_PROMPT = ("Transcribe exactly what the speaker says to his voice assistant Jarvis. He speaks Egyptian Arabic, often mixed "
                "with English words. Write Arabic words in Arabic script as he says them (Egyptian, never rewritten into Fusha) and "
@@ -144,14 +151,21 @@ def gemini_text(audio):
         w.writeframes((audio * 32767).astype(np.int16).tobytes())
     body = json.dumps({"contents": [{"parts": [{"text": EARS_PROMPT},
                                                {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(buf.getvalue()).decode()}}]}],
-                       "generationConfig": {"temperature": 0, "thinkingConfig": {"thinkingBudget": 0}}}).encode()
-    for model in ("gemini-3.5-flash", "gemini-3.1-flash-lite"):  # measured 2026-11-25: 3.5-flash 2.3 s and the most exact; lite often 503
+                       "generationConfig": {"temperature": 0}})
+    end = time.time() + GEMINI_WAIT
+    for model in GEMINI_EARS:  # measured 2026-11-25: 3.5-flash 2.3 s and the most exact, but its free tier runs out (429)
+        if BUSY.get(model, 0) > time.time() or time.time() > end - 0.3:
+            continue
         try:
-            req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", data=body,
+            req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                                         data=(body.replace('{"temperature": 0}', '{"temperature": 0, "thinkingConfig": {"thinkingBudget": 0}}')
+                                               if "3.5" in model else body).encode(),  # the lite models refuse thinkingConfig (400)
                                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
-            parts = json.load(urllib.request.urlopen(req, timeout=5))["candidates"][0].get("content", {}).get("parts", [])
+            parts = json.load(urllib.request.urlopen(req, timeout=end - time.time()))["candidates"][0].get("content", {}).get("parts", [])
             return "".join(p.get("text", "") for p in parts).strip()
         except Exception as e:
+            if getattr(e, "code", 0) in (429, 503):
+                BUSY[model] = time.time() + 120  # out of free quota or overloaded: skip it for 2 minutes
             log(f"gemini ears {model}: {str(e)[:120]}")
     return None
 
