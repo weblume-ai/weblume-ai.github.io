@@ -2091,8 +2091,10 @@ const JV_FAST=[[/^(ا?وق[فّ](لي|ه|ها)?|ستوب|pause|stop)(?=$|[\s،.!
 // goodbye: hide Jarvis, then close the window (the listener closes it like its X when the page isn't allowed to); two claps opens it again
 function jvBye(){close_();try{window.close()}catch(e){}fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"hide_jarvis",arg:""})}).catch(()=>{})}
 // «افتح سبوتيفاي» -> ["open_app","سبوتيفاي"], «شغل أول أغنية في تراك X» -> ["play_youtube","X"], «اقفل» -> "bye"
-function jvCommand(s){s=s.replace(/[.،!؟?]+$/,"").trim();if(/\sو(شغ|اكتب|دور|ابحث|اضغط|افتح|اقفل|روح)|\sand\s/i.test(s))return null;
-  if(/^(اقفل|اقفلي|اقفل نفسك|اقفل جارفيس|باي|سلام|bye|close|close yourself)$/i.test(s))return "bye";
+function jvCommand(s){s=s.replace(/[.،!؟?]+$/,"").trim();
+  // closing itself, however he says it («اغلق نفسك», «Can you close yourself?», «اقفل»), before anything else
+  if(/(اقفل|اقفلي|اغلق|قفل|سك[ّ]?ر)\s*(نفسك|جارفيس|جارفس)|close\s+(yourself|jarvis)|shut\s+(yourself|down jarvis)|^(اقفل|اقفلي|اغلق|باي|باي باي|سلام|مع السلامة|bye|goodbye|close)$/i.test(s))return "bye";
+  if(/\sو(شغ|اكتب|دور|ابحث|اضغط|افتح|اقفل|روح)|\sand\s/i.test(s))return null;
   let m=s.match(/^(?:افتح(?:لي)?|شغ[ّ]?ل(?:لي)? (?:برنامج|تطبيق)|open)\s+(.{2,40})$/i);if(m)return["open_app",m[1]];
   m=s.match(/^(?:اقفل(?:لي)?|close)\s+(.{2,40})$/i);if(m)return["close_app",m[1]];
   m=s.match(/^(?:شغ[ّ]?ل(?:لي|ي)?|play)\s+(.{2,80})$/i);
