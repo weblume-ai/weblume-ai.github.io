@@ -70,7 +70,7 @@ def open_jarvis(why):
 
 PRE_ROLL = 8       # blocks (80 ms each) kept from before a request starts
 SPEECH = 0.002      # raw loudness that counts as talking: NVIDIA Broadcast mutes the room (~0.00002) and keeps the voice quiet (~0.005)
-END_QUIET, NO_SPEECH, MAX_TALK = 1.0, 6.0, 15.0   # seconds: pause that ends a request, wait for a first word, longest request
+END_QUIET, NO_SPEECH, MAX_TALK = 1.6, 6.0, 25.0   # seconds: pause that ends a request, wait for a first word, longest request
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
 
@@ -267,11 +267,31 @@ def browse(url):
         os.startfile(url)
 
 
+class _Rect(ctypes.Structure):
+    _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+
+class _MonInfo(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_ulong), ("mon", _Rect), ("work", _Rect), ("flags", ctypes.c_ulong)]
+
+
+def monitor_of(h):
+    """(left, top, right, bottom) of the screen a window is on (he has two)."""
+    info = _MonInfo(size=ctypes.sizeof(_MonInfo))
+    ctypes.windll.user32.GetMonitorInfoW(ctypes.windll.user32.MonitorFromWindow(h, 2), ctypes.byref(info))
+    r = info.mon
+    return r.l, r.t, r.r, r.b
+
+
+SHOT = [None]  # the screen the last look was taken of, so a click lands on that same screen
+
+
 def screenshot():
-    """The whole screen as a JPEG, 1280 wide (enough for the vision model to find a button)."""
+    """The screen his window is on, as a JPEG 1280 wide (enough for the vision model to find a button)."""
     import io
     from PIL import ImageGrab
-    im = ImageGrab.grab(all_screens=False).convert("RGB")
+    SHOT[0] = box = monitor_of(LAST_WINDOW[0] or ctypes.windll.user32.GetForegroundWindow())
+    im = ImageGrab.grab(bbox=box, all_screens=True).convert("RGB")
     im.thumbnail((1280, 1280))
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=80)
@@ -279,10 +299,10 @@ def screenshot():
 
 
 def click(fx, fy):
-    """Left click at a point given as fractions (0..1) of the screen."""
+    """Left click at a point given as fractions (0..1) of the screen that was looked at."""
     u = ctypes.windll.user32
-    w, h = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
-    u.SetCursorPos(int(fx * w), int(fy * h))
+    l, t, r, b = SHOT[0] or (0, 0, u.GetSystemMetrics(0), u.GetSystemMetrics(1))
+    u.SetCursorPos(int(l + fx * (r - l)), int(t + fy * (b - t)))
     time.sleep(0.05)
     u.mouse_event(2, 0, 0, 0, 0)  # left down
     u.mouse_event(4, 0, 0, 0, 0)  # left up
@@ -297,7 +317,7 @@ AR_NAMES = {"كروم": "chrome", "جوجل كروم": "chrome", "جوجل": "go
             "المفكرة": "notepad", "النوت باد": "notepad", "الكاميرا": "camera", "ايدج": "edge", "اوبرا": "opera", "زووم": "zoom",
             "فيجوال ستوديو": "visual studio code", "في اس كود": "vscode", "شات جي بي تي": "chatgpt", "جيت هاب": "github",
             "اوتلوك": "outlook", "وورد": "word", "اكسل": "excel", "باور بوينت": "powerpoint", "مدير المهام": "task manager",
-            "الملفات": "file explorer", "كاب كات": "capcut", "اوبس": "obs", "ميدال": "medal", "انفيديا": "nvidia"}
+            "الملفات": "file explorer", "كاب كات": "capcut", "اوبس": "obs", "لاينر": "liner", "ستريميو": "stremio", "موفي بوكس": "moviebox", "اوبرا جي اكس": "opera gx", "ميدال": "medal", "انفيديا": "nvidia"}
 
 
 def english_name(name):
@@ -405,6 +425,18 @@ def act(action, arg, confirmed=False):
         if h:
             ctypes.windll.user32.PostMessageW(h, 0x0010, 0, 0)  # WM_CLOSE
         return "Closed."
+    if action == "move_screen":  # to the other monitor: Jarvis's own window, or the window he's working in
+        if arg.lower() == "jarvis":
+            h = ctypes.windll.user32.FindWindowW(None, "Phainora AI")
+            if not h:
+                return "Jarvis's window isn't open."
+            keys("alt")
+            ctypes.windll.user32.SetForegroundWindow(h)
+            time.sleep(0.2)
+        else:
+            focus_back()
+        keys("win+shift+right")  # Windows' own shortcut; with two screens it flips between them
+        return "Moved to the other screen."
     if action in ("open_app", "close_app"):
         arg = english_name(arg)
     if action == "open_app":
@@ -679,7 +711,7 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
         last = now
         model.reset()
         if ears.model and page_open():  # "Hey Jarvis, what's the weather": the request right after the name (in the pre-roll; ask() drops it)
-            log(f"hey jarvis {score:.2f}")
+            open_jarvis(f"hey jarvis {score:.2f}")  # the open window stops talking at once and listens
             talk = start(True)
     return talk, room, claps, last, n
 
