@@ -2067,10 +2067,13 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
   const now=new Date(),stamp=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0")+" "+now.toTimeString().slice(0,5)+" ("+now.toLocaleDateString("en-GB",{weekday:"long"})+")";
   const msgs=[{role:"system",content:JV_SYS+"\nNow (his local time): "+stamp+"."+(notes?"\nWhat he asked you to remember:\n"+notes:"")},...jvHist.slice(-8),
     {role:"user",content:q+(screen?"\n\n[His screen right now: "+screen+"]":"")}];
+  // each Groq model has its own per-minute limit: when the big one is full (429) the next one answers instead of failing
+  const models=["openai/gpt-oss-120b","openai/gpt-oss-20b","qwen/qwen3.8-27b"];let mi=0,acted=false;
   try{for(let round=0;round<8;round++){ // several steps: look, click, type, enter, look again
       const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
-        body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,tools:JV_TOOLS,messages:msgs})});
-      if(!r.ok)return "";const m=((await r.json()).choices||[{}])[0].message||{};
+        body:JSON.stringify({model:models[mi],...(/gpt-oss/.test(models[mi])?{reasoning_effort:"low"}:{}),max_tokens:500,tools:JV_TOOLS,messages:msgs})});
+      if(!r.ok){console.warn("jarvis groq",models[mi],r.status);if(mi<models.length-1){mi++;round--;continue}return acted?"Done, sir.":""}
+      const m=((await r.json()).choices||[{}])[0].message||{};if(m.tool_calls&&m.tool_calls.length)acted=true;
       if(m.tool_calls&&m.tool_calls.length){msgs.push({role:"assistant",content:m.content||"",tool_calls:m.tool_calls});
         for(const c of m.tool_calls){let args={};try{args=JSON.parse(c.function.arguments||"{}")||{}}catch(e){}const arg=args.arg;
           const name=c.function.name;if(!JV_NAMES.has(name)){msgs.push({role:"tool",tool_call_id:c.id,content:"Not allowed."});continue}
@@ -2081,8 +2084,8 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
           if(d.confirm){const yes=await jvConfirm(d.confirm);setMode("think");d=yes?await post(d.confirm.action||"click_at",d.confirm.arg,true):{result:"He said no, so nothing was done."}} // confirmed only after his click
           msgs.push({role:"tool",tool_call_id:c.id,content:d.result||d.error||"failed"})}
         continue}
-      const a=m.content||"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a}}catch(e){}
-  return ""}
+      const a=m.content||"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a||(acted?"Done, sir.":"")}}catch(e){console.warn("jarvis",e)}
+  return acted?"Done, sir.":""}
 // (\b doesn't work next to Arabic letters, so the ends are spelled out)
 const JV_FAST=[[/^(ا?وق[فّ](لي|ه|ها)?|ستوب|pause|stop)(?=$|[\s،.!؟]*$)|ا?وق[فّ]\S*\s+(ال)?(فيديو|اغني|أغني|مزيك|موسيق|تشغيل)/i,"play_pause","Paused, sir."],
   [/^(كم[ّ]?ل|كمله|كمليه|شغ[ّ]?ل(ه)? تاني|resume|continue)(?=$|[\s،.!؟]*$)|^كم[ّ]?ل\S*\s+(ال)?(فيديو|اغني|أغني|مزيك)/i,"play_pause","Playing, sir."],
@@ -2117,7 +2120,8 @@ async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awak
   // every question goes to Jarvis's own brain (Groq) except building a site or code, which needs the full app's tools
   if(!/^(site|code)$/.test(classifyTask(q))){const a=await quick(q);
     if(a==="__BYE__"){say("Goodbye, sir.",jvBye);return} // a Jarvis-only window closes; two claps opens it again
-    if(a){say(a);return}}
+    if(a){say(a);return}
+    say("Sorry, sir, my brain is busy for a moment. Ask me again in a minute.");return} // the big app's key is dead, so it would only fail too
   reply="";$("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
 addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
