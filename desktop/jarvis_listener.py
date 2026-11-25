@@ -74,6 +74,12 @@ END_QUIET, NO_SPEECH, MAX_TALK = 1.0, 6.0, 15.0   # seconds: pause that ends a r
 JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر", "شكرا للمشاهدة", "Thank you."}  # what Whisper invents from silence
 
 
+# words he says often, so Whisper leans toward them when the sound is unclear
+HINTS = ("يا جارفيس، افتح كروم، افتح يوتيوب، شغل أغنية، وقف الفيديو، كمل، اللي بعده، علي الصوت، وطي الصوت، اقفل سبوتيفاي، "
+         "افتح ديسكورد، واتساب، جيميل، اكتب، فكرني، دور على، اضغط على، غير اسمي، الجو عامل ايه. "
+         "Jarvis, Chrome, YouTube, Spotify, Discord, WhatsApp, Gmail, Phainora, Weblume.")
+
+
 class Ears:
     """Whisper on the GPU. Loads in the background, so a missing GPU or library only means: no ears (the page then uses the browser's)."""
     def __init__(self):
@@ -95,7 +101,7 @@ class Ears:
         audio = np.concatenate(frames).astype(np.float32) / 32768
         audio *= 0.9 / max(float(np.abs(audio).max()), 1e-4)  # even out a quiet mic without clipping (a fixed boost distorted Arabic)
         segs, _ = self.model.transcribe(audio, language="ar", beam_size=5, vad_filter=True,
-                                        initial_prompt="يا جارفيس، سامعني؟ افتح جوجل. Jarvis, what's the weather?")
+                                        initial_prompt=HINTS)
         t = " ".join(s.text.strip() for s in segs).strip()
         return "" if t.strip(" .،") in JUNK else t
 
@@ -486,6 +492,7 @@ def voice_server():
             if u.path == "/shot":  # the screen, for Jarvis's eyes (token only)
                 if not secrets.compare_digest(self.headers.get("X-Jarvis-Token", ""), TOKEN):
                     return self.send_error(403)
+                focus_back()  # his window in front of Jarvis's, so the look (and the click after it) is on what he sees
                 png = screenshot()
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")

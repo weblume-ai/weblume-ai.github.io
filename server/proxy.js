@@ -146,6 +146,12 @@ let jvSeen=0,jvWant=false,jvText=null,jvListen=0,jvEar=0,jvSay=null;
 // Jarvis's hands and eyes. The listener (127.0.0.1:8788, per-run token) does the clicking; the screen goes to Gemini only when he asks to look or click
 async function jvHand(action,arg,tok,confirmed=false){const w=await fetch("http://127.0.0.1:8788/do",{method:"POST",headers:{"Content-Type":"application/json","X-Jarvis-Token":tok},body:JSON.stringify({action,arg,confirmed}),signal:AbortSignal.timeout(20000)});
   if(!w.ok)throw new Error("The listener refused.");return w.json()}
+// a quick look (a description, no boxes): Qwen on Groq ~1.5 s; Gemini is the backup and does the pointing for clicks
+async function jvGlance(prompt,jpg){const k=(readSettings().keys||{}).groq;if(k)try{
+    const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},signal:AbortSignal.timeout(12000),
+      body:JSON.stringify({model:"qwen/qwen3.8-27b",max_tokens:220,messages:[{role:"user",content:[{type:"text",text:prompt},{type:"image_url",image_url:{url:"data:image/jpeg;base64,"+jpg.toString("base64")}}]}]})});
+    if(r.ok){const t=String((((await r.json()).choices||[])[0]||{}).message?.content||"").replace(/<think>[\s\S]*?<\/think>/g,"").trim();if(t)return t}}catch(e){}
+  return jvVision(prompt,jpg)}
 async function jvVision(prompt,jpg){const k=(readSettings().keys||{}).gemini;if(!k)throw new Error("Jarvis needs a Gemini key to see the screen.");
   // timed 2026-11-25: 3.1-flash-lite ~3.4 s and accurate boxes; 3.5-flash with thinking off ~8 s; 2.5-flash is retired, the bigger ones think for minutes
   for(const [model,effort] of [["gemini-3.1-flash-lite",null],["gemini-3.5-flash","none"],["gemini-flash-lite-latest",null]]){
@@ -157,7 +163,7 @@ const RISKY=/delete|remove|trash|send|pay|buy|purchase|checkout|order|confirm|su
 async function jvEyes(action,arg,tok){
   const s=await fetch("http://127.0.0.1:8788/shot",{headers:{"X-Jarvis-Token":tok},signal:AbortSignal.timeout(10000)});if(!s.ok)throw new Error("Couldn't take a screenshot.");
   const jpg=Buffer.from(await s.arrayBuffer());
-  if(action==="look")return{result:await jvVision("This is my computer screen. In two short English sentences, say what is open and what matters on it"+(arg?", focusing on: "+arg:"")+". No lists.",jpg)};
+  if(action==="look")return{result:await jvGlance("This is my computer screen. In two or three short English sentences, say which app and page are open and what matters on it"+(arg?" for this request: "+arg:"")+" (quote visible names, titles and field labels exactly). No lists.",jpg)};
   const t=await jvVision('On this screenshot find the element I want to click: "'+arg.replace(/"/g,"'")+'". Answer ONLY JSON: {"found":true,"label":"the visible text or name of that element","box_2d":[ymin,xmin,ymax,xmax]} with box_2d normalized 0-1000, or {"found":false,"why":"short reason"}.',jpg);
   let o={};try{o=JSON.parse(t.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/,"$1"))}catch(e){}
   const bx=o.box_2d;if(!o.found||!Array.isArray(bx)||bx.length!==4||!bx.every(v=>Number.isFinite(v)))return{result:"I can't see "+arg+" on the screen"+(o.why?": "+o.why:"")+"."};

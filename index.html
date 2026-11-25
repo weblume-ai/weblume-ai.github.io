@@ -2024,7 +2024,7 @@ async function toggleMic(on){micOn=on;$("#jv-mic").classList.toggle("on",on);$("
 
 // small talk goes straight to Groq with a short prompt (~0.5 s; the full agent's prompt is too big for Groq's free tier and falls back to slower models);
 // real work (a site, code, a file, a long text) goes into the normal chat, with its tools and approvals
-const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You control his PC with the tools: open and close apps, websites (in Chrome) and folders, play songs and videos on YouTube (play_youtube actually plays it), search, media keys, windows, look at the screen, click on it, type text and press keys, and lock / sleep / restart / shut down. For a task with several steps (e.g. search inside a site, write in a box), chain the tools: look, click, type, press enter, then look again to check. When done, confirm in a few words. You can't delete files or type passwords or card numbers. Sending in a chat, risky clicks and shutting down wait for his yes on the screen. DICTATION: when he says write / type / اكتب something, call type_text with exactly his words in his own language (Arabic stays Arabic, never translate or reword); his cursor or selected text in the window he was using is where it goes, so don't click first unless he asks. You also set reminders and timers (remind_me), keep notes he asks you to remember (remember), tell the weather (weather), and answer questions from the web (web_search, then answer in one or two sentences). Your own knowledge is old: for news, results, scores, prices, who won, who is, anything recent or that may have changed, ALWAYS call web_search first and answer from what it finds.";
+const JV_SYS="You are Jarvis, Asser's personal AI assistant, like Jarvis in Iron Man: calm, smart, polite, a little witty. He talks to you in Egyptian Arabic or English. You ALWAYS answer in English only, never in Arabic, even if he asks: one or two short spoken sentences, and call him sir. No code, lists, markdown or emoji. You control his PC with the tools: open and close apps, websites (in Chrome) and folders, play songs and videos on YouTube (play_youtube actually plays it), search, media keys, windows, look at the screen, click on it, type text and press keys, and lock / sleep / restart / shut down. For a task with several steps (e.g. search inside a site, write in a box), chain the tools: look, click, type, press enter, then look again to check. When done, confirm in a few words. You can't delete files or type passwords or card numbers. Sending in a chat, risky clicks and shutting down wait for his yes on the screen. DICTATION: when he says write / type / اكتب something, call type_text with exactly his words in his own language (Arabic stays Arabic, never translate or reword); his cursor or selected text in the window he was using is where it goes, so don't click first unless he asks. You also set reminders and timers (remind_me), keep notes he asks you to remember (remember), tell the weather (weather), and answer questions from the web (web_search, then answer in one or two sentences). Your own knowledge is old: for news, results, scores, prices, who won, who is, anything recent or that may have changed, ALWAYS call web_search first and answer from what it finds. If you don't know something, search instead of guessing, and answer fast. HEARING: his words come from a microphone and are sometimes misheard (wrong letters, a word that sounds alike, Arabic and English mixed); work out the most likely thing he meant from the sound and the context, and do it; only ask again if it could mean two very different things. DO IT: whatever he asks, do it with your tools instead of explaining how; break a big task into steps (look, click, select with ctrl+a, type, enter, look again to check). When a [His screen right now] note is there, use it: e.g. «change my name to X» on a profile page means click the name field, ctrl+a, type X and save. If he asks you to call him by another name, remember it and use it.";
 const jvHist=[];
 // Jarvis's hands on this PC, run by the listener through the server (no deleting; sending, risky clicks and power wait for a click on yes)
 const JV_TOOLS=[["open_app","Open an installed app or a well-known site by its English name (chrome, spotify, discord, whatsapp, calculator, settings, vscode, youtube, gmail...)."],
@@ -2055,10 +2055,15 @@ async function jvLocal(name,args){
   return null}
 const JV_NAMES=new Set(JV_TOOLS.map(x=>x.function.name)); // the model may only call these; a click it can't take back waits for a click on «yes»
 function jvConfirm(c){return new Promise(res=>{answer=yes=>res(yes);const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+c.label+"?";b.hidden=false;setMode("ask");say("I need your yes on the screen, sir.",()=>setMode("ask"));b.querySelector(".pri").focus()})}
+const JV_SCREEN=/(شاش|قدامي|قدامك|فاتح|مفتوح|الصفح|ده|دي|دا|دى|هنا|غي[ّ]?ر|عد[ّ]?ل|اسم|اضغط|دوس|اختار|اختر|مربع|زرار|زر |خان|كلام|نص|screen|this|here|change|rename|edit|click|select)/i;
 async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
-  const notes=await fetch("/api/memory").then(x=>x.json()).then(j=>(j.notes||[]).slice(-40).map(n=>"- "+n.text).join("\n")).catch(()=>"");
+  // a request about what's on the screen gets a fresh look first (~1.5 s), in parallel with the notes
+  const onScreen=JV_SCREEN.test(q);if(onScreen)$("#jv-say").textContent="👁 looking at your screen…";
+  const [notes,screen]=await Promise.all([fetch("/api/memory").then(x=>x.json()).then(j=>(j.notes||[]).slice(-40).map(n=>"- "+n.text).join("\n")).catch(()=>""),
+    onScreen?fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"look",arg:q})}).then(x=>x.json()).then(d=>d.result||"").catch(()=>""):""]);
   const now=new Date(),stamp=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0")+" "+now.toTimeString().slice(0,5)+" ("+now.toLocaleDateString("en-GB",{weekday:"long"})+")";
-  const msgs=[{role:"system",content:JV_SYS+"\nNow (his local time): "+stamp+"."+(notes?"\nWhat he asked you to remember:\n"+notes:"")},...jvHist.slice(-8),{role:"user",content:q}];
+  const msgs=[{role:"system",content:JV_SYS+"\nNow (his local time): "+stamp+"."+(notes?"\nWhat he asked you to remember:\n"+notes:"")},...jvHist.slice(-8),
+    {role:"user",content:q+(screen?"\n\n[His screen right now: "+screen+"]":"")}];
   try{for(let round=0;round<8;round++){ // several steps: look, click, type, enter, look again
       const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+k},
         body:JSON.stringify({model:"openai/gpt-oss-120b",reasoning_effort:"low",max_tokens:500,tools:JV_TOOLS,messages:msgs})});
@@ -2075,9 +2080,18 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
         continue}
       const a=m.content||"";if(a)jvHist.push({role:"user",content:q},{role:"assistant",content:a});return a}}catch(e){}
   return ""}
+// (\b doesn't work next to Arabic letters, so the ends are spelled out)
+const JV_FAST=[[/^(ا?وق[فّ](لي|ه|ها)?|ستوب|pause|stop)(?=$|[\s،.!؟]*$)|ا?وق[فّ]\S*\s+(ال)?(فيديو|اغني|أغني|مزيك|موسيق|تشغيل)/i,"play_pause","Paused, sir."],
+  [/^(كم[ّ]?ل|كمله|كمليه|شغ[ّ]?ل(ه)? تاني|resume|continue)(?=$|[\s،.!؟]*$)|^كم[ّ]?ل\S*\s+(ال)?(فيديو|اغني|أغني|مزيك)/i,"play_pause","Playing, sir."],
+  [/(اللي بعده|التالي|التالية|next|سكيب|skip)/i,"next","Next one, sir."],[/(اللي قبله|السابق|previous|back song)/i,"previous","Going back, sir."],
+  [/(ع[لّ]ي|ارفع|زو[ّ]?د)\s*(الصوت)|louder|volume up/i,"volume_up","Turning it up."],[/(و[طّ]ي|قل[ّ]?ل|اخفض)\s*(الصوت)|quieter|volume down/i,"volume_down","Turning it down."],
+  [/^(اسكت|كتم|اكتم|mute)|اقفل الصوت/i,"mute","Muted, sir."]];
 async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
   if(busy){say("One moment, sir, I'm still on the last one.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");
+  // media in one go, no model: "وقف الفيديو" acts at once
+  const bare=q.replace(WAKE," ").trim(),fast=JV_FAST.find(([rx])=>rx.test(bare));
+  if(fast&&bare.split(/\s+/).length<=5){fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"media",arg:fast[1]})}).catch(()=>{});say(fast[2]);return}
   if(classifyTask(q)==="chat"){const a=await quick(q);
     if(a==="__BYE__"){say("Goodbye, sir.",()=>{close_();try{window.close()}catch(e){}});return} // a Jarvis-only window closes; two claps opens it again
     if(a){say(a);return}}
