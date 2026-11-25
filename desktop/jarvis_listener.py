@@ -79,7 +79,7 @@ JUNK = {"", "اشتركوا في القناة", "ترجمة نانسي قنقر"
 # words he says often, so Whisper leans toward them when the sound is unclear
 HINTS = ("يا جارفيس، افتح كروم، افتح يوتيوب، شغل أغنية، وقف الفيديو، كمل، اللي بعده، علي الصوت، وطي الصوت، اقفل سبوتيفاي، "
          "افتح ديسكورد، واتساب، جيميل، اكتب، فكرني، دور على، اضغط على، غير اسمي، الجو عامل ايه. "
-         "Jarvis, Chrome, YouTube, Spotify, Discord, WhatsApp, Gmail, Phainora, Weblume.")
+         "Jarvis, Claude, Chrome, YouTube, Spotify, Discord, WhatsApp, Gmail, Kaggle, Phainora, Weblume.")
 
 
 class Ears:
@@ -102,10 +102,58 @@ class Ears:
     def text(self, frames):
         audio = np.concatenate(frames).astype(np.float32) / 32768
         audio *= 0.9 / max(float(np.abs(audio).max()), 1e-4)  # even out a quiet mic without clipping (a fixed boost distorted Arabic)
-        segs, _ = self.model.transcribe(audio, language="ar", beam_size=5, vad_filter=True,
-                                        initial_prompt=HINTS)
-        t = " ".join(s.text.strip() for s in segs).strip()
+        local = {}
+
+        def whisper():  # runs alongside Gemini, so a failed or slow Gemini costs nothing extra
+            segs, _ = self.model.transcribe(audio, language="ar", beam_size=5, vad_filter=True, initial_prompt=HINTS)
+            local["t"] = " ".join(s.text.strip() for s in segs).strip()
+        w = threading.Thread(target=whisper, daemon=True) if self.model else None
+        if w:
+            w.start()
+        t = gemini_text(audio)  # Whisper turns Egyptian into wrong Fusha ("هل يمكنك الابتعاد…"); Gemini keeps what he said
+        if t is None and w:
+            w.join(10)
+            t = local.get("t", "")
+            log("(whisper)")
+        t = (t or "").strip()
+        if t.startswith("-"):  # Gemini's "no speech" answer
+            t = ""
         return "" if t.strip(" .،") in JUNK else t
+
+
+SETTINGS = Path(__file__).resolve().parent.parent / "weblume-settings.json"  # the app's saved keys (git-ignored)
+EARS_PROMPT = ("Transcribe exactly what the speaker says to his voice assistant Jarvis. He speaks Egyptian Arabic, often mixed "
+               "with English words. Write Arabic words in Arabic script as he says them (Egyptian, never rewritten into Fusha) and "
+               "English words (app, site and song names) in English. Names he uses: Jarvis, Claude, Chrome, YouTube, Spotify, "
+               "Discord, WhatsApp, Gmail, Kaggle, Colab, Phainora, Weblume, Liner, Stremio, Ollama, GitHub. "
+               "Output only the transcript. If there is no clear human speech (only music, noise or a video), output exactly: -")
+
+
+def gemini_text(audio):
+    """Gemini's free tier hears Egyptian Arabic far better than Whisper. None = no key or no answer, so Whisper takes over."""
+    import base64, io, wave
+    try:
+        key = json.loads(SETTINGS.read_text(encoding="utf-8")).get("keys", {}).get("gemini", "")
+    except Exception:
+        key = ""
+    if not key:
+        return None
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(RATE)
+        w.writeframes((audio * 32767).astype(np.int16).tobytes())
+    body = json.dumps({"contents": [{"parts": [{"text": EARS_PROMPT},
+                                               {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(buf.getvalue()).decode()}}]}],
+                       "generationConfig": {"temperature": 0, "thinkingConfig": {"thinkingBudget": 0}}}).encode()
+    for model in ("gemini-3.5-flash", "gemini-3.1-flash-lite"):  # measured 2026-11-25: 3.5-flash 2.3 s and the most exact; lite often 503
+        try:
+            req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent", data=body,
+                                         headers={"Content-Type": "application/json", "x-goog-api-key": key})
+            parts = json.load(urllib.request.urlopen(req, timeout=5))["candidates"][0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts).strip()
+        except Exception as e:
+            log(f"gemini ears {model}: {str(e)[:120]}")
+    return None
 
 
 # ---- hands: what Jarvis may do on this PC. Only opening and media keys: nothing that deletes, sends, buys or types for you.
@@ -319,16 +367,42 @@ AR_NAMES = {"كروم": "chrome", "جوجل كروم": "chrome", "جوجل": "go
             "المفكرة": "notepad", "النوت باد": "notepad", "الكاميرا": "camera", "ايدج": "edge", "اوبرا": "opera", "زووم": "zoom",
             "فيجوال ستوديو": "visual studio code", "في اس كود": "vscode", "شات جي بي تي": "chatgpt", "جيت هاب": "github",
             "اوتلوك": "outlook", "وورد": "word", "اكسل": "excel", "باور بوينت": "powerpoint", "مدير المهام": "task manager",
-            "الملفات": "file explorer", "كاب كات": "capcut", "اوبس": "obs", "لاينر": "liner", "ستريميو": "stremio", "موفي بوكس": "moviebox", "اوبرا جي اكس": "opera gx", "ميدال": "medal", "انفيديا": "nvidia"}
+            "الملفات": "file explorer", "كاب كات": "capcut", "اوبس": "obs", "لاينر": "liner", "ستريميو": "stremio", "موفي بوكس": "moviebox", "اوبرا جي اكس": "opera gx", "ميدال": "medal", "انفيديا": "nvidia",
+            "كلود": "claude", "كلاود": "claude", "cloud": "claude", "cloud app": "claude", "cloudapp": "claude", "كاجل": "kaggle", "كولاب": "colab"}
 
 
 def english_name(name):
     """«سبوتيفاي» -> spotify; English names pass through."""
     n = re.sub(r"^(برنامج|تطبيق|ال?ابلكيشن|موقع)\s+", "", name.strip().strip("،.!؟?"))
-    for k in (n, n.removeprefix("ال")):
+    for k in (n, n.removeprefix("ال"), n.lower()):
         if k in AR_NAMES:
             return AR_NAMES[k]
     return n
+
+
+class StoreApp:
+    """A Microsoft Store app (Claude, WhatsApp...): no .lnk file, Windows opens it by its AppID."""
+    def __init__(self, name, app_id):
+        self.stem, self.target = name, "shell:AppsFolder\\" + app_id
+
+    def __str__(self):
+        return self.target
+
+
+STORE = []
+
+
+def store_apps():
+    """Store apps from Windows' own Start list, read once."""
+    if not STORE:
+        try:
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-StartApps | ConvertTo-Json -Compress"],
+                                 capture_output=True, text=True, timeout=20, creationflags=0x08000000).stdout
+            items = json.loads(out or "[]")
+            STORE.extend(StoreApp(a["Name"], a["AppID"]) for a in (items if isinstance(items, list) else [items]) if "!" in a.get("AppID", ""))
+        except Exception as e:
+            log(f"store apps: {e}")
+    return STORE
 
 
 def find_app(name):
@@ -340,8 +414,8 @@ def find_app(name):
     best, every = None, {}
     apps = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs"  # per-user installs with no Start menu entry (Stremio...)
     exes = [e for e in apps.glob("*/*.exe") if not re.search(r"uninst|update|helper|crash|squirrel|elevate|runtime|service", e.stem, re.I)] if apps.exists() else []
-    for root in roots + [None]:
-        for lnk in (root.rglob("*.lnk") if root.exists() else []) if root else exes:
+    for root in roots + [None, "store"]:
+        for lnk in store_apps() if root == "store" else (root.rglob("*.lnk") if root.exists() else []) if root else exes:
             stem = lnk.stem.lower()
             if "uninstall" in stem:
                 continue
