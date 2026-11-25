@@ -13,7 +13,9 @@ from openwakeword.model import Model
 URL = "http://127.0.0.1:8787"
 RATE, CHUNK = 16000, 1280             # 80 ms blocks, what openWakeWord expects
 WAKE_SCORE = float(os.environ.get("JARVIS_WAKE", 0.5))
-CLAP_PEAK = float(os.environ.get("JARVIS_CLAP", 0.35))  # peak level of a clap (0..1)
+CLAP_PEAK = float(os.environ.get("JARVIS_CLAP", 0.5))   # peak level of a clap (0..1); his claps reach 0.9+
+CLAP_DECAY = 0.35                     # the next 80 ms must be this much quieter (a clap dies at once, speech doesn't)
+CL = {"prev": 0.0, "pend": None, "double": None}  # clap state between blocks
 CLAP_OVER_ROOM = 8                    # and this many times louder than the room
 GAIN = int(os.environ.get("JARVIS_GAIN", 4))         # voice boost before the wake-word model
 COOLDOWN = 5
@@ -609,8 +611,8 @@ def page_open():
 
 
 def is_double_clap(times, now):
-    """Two claps 0.15-0.9 s apart; the second one is now."""
-    return len(times) >= 2 and 0.15 <= now - times[-2] <= 0.9
+    """Two claps 0.2-0.8 s apart; the second one is now."""
+    return len(times) >= 2 and 0.2 <= now - times[-2] <= 0.8
 
 
 def main():
@@ -691,21 +693,35 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
     if ears.model and n % 4 == 0 and page_waits():  # Jarvis answered and waits for your reply
         return start(False), room, claps, last, n
     score = model.predict(loud).get("hey_jarvis", 0)
-    clap = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room
-    if not clap:
+    # a clap: loud, sudden (the block before was much quieter) and gone at once (the next block drops sharply).
+    # Loud talking, laughing or music stay loud, so they never count (they opened Jarvis by themselves on 2026-11-25).
+    clap = False
+    if CL["pend"]:
+        t0, r0 = CL["pend"]
+        CL["pend"] = None
+        clap = rms < CLAP_DECAY * r0
+        if clap:
+            claps = [t for t in claps if now - t < 1.5] + [t0]
+            CL["double"] = t0 if is_double_clap(claps, t0) and len(claps) == 2 else None
+    sharp = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room and CL["prev"] < 0.3 * rms
+    if sharp and not clap:
+        CL["pend"] = (now, rms)
+    else:
         room = 0.98 * room + 0.02 * rms  # slow average of the room's level
+    CL["prev"] = rms
     if TEST:
         print(f"peak {peak:.2f}  room {room:.3f}  jarvis {score:.2f}" + ("  CLAP" if clap else ""), flush=True)
     if score > 0.05 or peak > 0.05:
         log(f"peak {peak:.2f} room {room:.3f} jarvis {score:.2f}" + (" CLAP" if clap else ""))
-    if clap and (not claps or now - claps[-1] > 0.15):
-        claps = (claps + [now])[-3:]
-        if is_double_clap(claps, now) and now - last > COOLDOWN:
-            last, claps = now, []
-            open_jarvis("two claps")
-            if ears.model:
-                before.clear()  # the claps themselves aren't part of the request
-                talk = start(True)
+    # exactly two: wait half a second after the second clap, a third one (a burst of noise) cancels
+    if CL["double"] and len(claps) > 2:
+        CL["double"] = None
+    if CL["double"] and now - CL["double"] > 0.5 and now - last > COOLDOWN:
+        last, claps, CL["double"] = now, [], None
+        open_jarvis("two claps")
+        if ears.model:
+            before.clear()  # the claps themselves aren't part of the request
+            talk = start(True)
     # only two claps open Jarvis (his choice); "Hey Jarvis" just gets its attention while the window is already open
     if score > WAKE_SCORE and now - last > COOLDOWN:
         last = now
@@ -716,6 +732,6 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
     return talk, room, claps, last, n
 
 
-assert is_double_clap([1.0, 1.4], 1.4) and not is_double_clap([1.0, 2.5], 2.5) and not is_double_clap([1.4], 1.4)
+assert is_double_clap([1.0, 1.4], 1.4) and not is_double_clap([1.0, 2.5], 2.5) and not is_double_clap([1.4], 1.4) and not is_double_clap([1.0, 1.1], 1.1)
 if __name__ == "__main__":
     main()
