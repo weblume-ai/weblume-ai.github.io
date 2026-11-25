@@ -4,7 +4,7 @@ The microphone audio stays on this laptop: it's kept in memory only while you ta
 Runs from Windows startup (Jarvis only, light): the app's small server starts only when Jarvis is called,
 without the company server or the full Phainora AI window.
   python jarvis_listener.py --test   prints the live levels, to tune CLAP_PEAK for your mic"""
-import collections, ctypes, json, os, queue, re, secrets, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
+import collections, ctypes, difflib, json, os, queue, re, secrets, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 import numpy as np
 import sounddevice as sd
@@ -315,16 +315,23 @@ def find_app(name):
     roots = [Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs",
              Path(os.environ.get("PROGRAMDATA", "")) / r"Microsoft\Windows\Start Menu\Programs",
              Path.home() / "Desktop", Path.home() / r"OneDrive\Documentos\Desktop"]
-    best = None
-    for root in roots:
-        for lnk in root.rglob("*.lnk") if root.exists() else []:
+    best, every = None, {}
+    apps = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs"  # per-user installs with no Start menu entry (Stremio...)
+    exes = [e for e in apps.glob("*/*.exe") if not re.search(r"uninst|update|helper|crash|squirrel|elevate|runtime|service", e.stem, re.I)] if apps.exists() else []
+    for root in roots + [None]:
+        for lnk in (root.rglob("*.lnk") if root.exists() else []) if root else exes:
             stem = lnk.stem.lower()
             if "uninstall" in stem:
                 continue
+            every.setdefault(stem, lnk)
             score = 3 if stem == name else 2 if stem.startswith(name) else 1 if name in stem else 0
             if score and (best is None or score > best[0] or (score == best[0] and len(stem) < len(best[1].stem))):
                 best = (score, lnk)
-    return best[1] if best else None
+    if best:
+        return best[1]
+    # a misheard or "corrected" name (he said Liner, it became "linear"): the closest installed app name
+    close = difflib.get_close_matches(name, every, n=1, cutoff=0.7)
+    return every[close[0]] if close else None
 
 
 def act(action, arg, confirmed=False):
