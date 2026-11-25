@@ -1530,9 +1530,10 @@ async function pushCloud(){if(!sess||!encKey||!supaReady())return;await ensureFr
 function pushCloudSoon(){if(!sess||!encKey)return;clearTimeout(cpT);cpT=setTimeout(()=>pushCloud().catch(e=>acctMsg("⚠️ المزامنة وقفت: "+e.message)),900)}
 // Keys copies (cloud, local file) carry kt = time of the last key edit. A newer copy replaces the keys as a whole,
 // so a key deleted on one device stays deleted. A copy without kt (older version), or the first login on a device, only fills empty boxes.
-function mergeKeys(o,first){const newer=!first&&typeof o.kt==="number"&&o.kt>(cfg.kt||0),old=first||typeof o.kt!=="number";let ch=false;
+function mergeKeys(o,first){const newer=!first&&typeof o.kt==="number"&&o.kt>(cfg.kt||0);let ch=false;
   KEY_PROVS.forEach(p=>{const v=o.keys[p],cur=cfg.keys[p]||"";if(typeof v!=="string"||v===cur)return;
-    if(newer||old&&v&&!cur){if(cfg.key&&cfg.key===cur)cfg.key=v;cfg.keys[p]=v;ch=true}});
+    // an empty key here is always filled from the server (a new browser, e.g. Jarvis in Edge, got none while the server's kt was 0)
+    if(newer||v&&!cur){if(cfg.key&&cfg.key===cur)cfg.key=v;cfg.keys[p]=v;ch=true}});
   if(newer)cfg.kt=o.kt;else if(first&&ch)cfg.kt=Date.now();return ch}
 function applyCloud(o,first){if(!o||typeof o!=="object")return;if(o.keys&&typeof o.keys==="object")mergeKeys(o,first);
   if(o.pm&&typeof o.pm==="object")Object.keys(o.pm).forEach(k=>{if(PROVIDERS[k]&&typeof o.pm[k]==="string"&&o.pm[k])cfg.pm[k]=o.pm[k]});
@@ -2113,13 +2114,15 @@ async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awak
   const cmd=jvCommand(bare);
   if(cmd==="bye"){say("Goodbye, sir.",jvBye);return}
   if(cmd){const d=await quickDo(cmd[0],cmd[1]);if(d.result&&!/couldn't find|won't|isn't open/i.test(d.result)){say(d.result.replace(/ in Chrome\./,"."));return}}
-  if(classifyTask(q)==="chat"){const a=await quick(q);
+  // every question goes to Jarvis's own brain (Groq) except building a site or code, which needs the full app's tools
+  if(!/^(site|code)$/.test(classifyTask(q))){const a=await quick(q);
     if(a==="__BYE__"){say("Goodbye, sir.",jvBye);return} // a Jarvis-only window closes; two claps opens it again
     if(a){say(a);return}}
   reply="";$("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
 addEventListener("wl-step",e=>{if(!jv.hidden&&mode==="think")$("#jv-say").textContent=e.detail});
-addEventListener("wl-done",()=>{if(jv.hidden)return;$("#jv-ask").hidden=true;answer=null;const r=reply;reply="";r?say(r):done()});
+addEventListener("wl-done",()=>{if(jv.hidden)return;$("#jv-ask").hidden=true;answer=null;const r=reply;reply="";
+  say(r||"Sorry, sir, I couldn't get an answer just now. One of the AI keys may have stopped working.")}); // never silent
 // risky steps: the same موافق/لا as the chat, shown big; only a click answers (a voice "yes" could come from anyone in the room)
 addEventListener("wl-confirm",e=>{if(jv.hidden)return;answer=e.detail.answer;const b=$("#jv-ask");b.querySelector("span").textContent="⏸ "+e.detail.text;b.hidden=false;setMode("ask");say("I need your approval before I go on, sir. Press yes or no.",()=>setMode("ask"));b.querySelector(".pri").focus()});
 $("#jv-ask").addEventListener("click",e=>{const b=e.target.closest("button");if(!b||!answer)return;answer(b.dataset.a==="1");answer=null;$("#jv-ask").hidden=true;setMode("think")});
