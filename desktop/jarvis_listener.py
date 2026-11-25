@@ -16,7 +16,7 @@ WAKE_SCORE = float(os.environ.get("JARVIS_WAKE", 0.5))
 CLAP_PEAK = float(os.environ.get("JARVIS_CLAP", 0.5))   # peak level of a clap (0..1); his claps reach 0.9+
 CLAP_DECAY = 0.35                     # the next 80 ms must be this much quieter (a clap dies at once, speech doesn't)
 CL = {"prev": 0.0, "pend": None, "double": None}  # clap state between blocks
-CLAP_OVER_ROOM = 8                    # and this many times louder than the room
+CLAP_OVER_ROOM = 12                   # and this many times louder than the room (music or a video playing passed at 8)
 GAIN = int(os.environ.get("JARVIS_GAIN", 4))         # voice boost before the wake-word model
 COOLDOWN = 5
 TEST = "--test" in sys.argv
@@ -703,7 +703,7 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
         if clap:
             claps = [t for t in claps if now - t < 1.5] + [t0]
             CL["double"] = t0 if is_double_clap(claps, t0) and len(claps) == 2 else None
-    sharp = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room and CL["prev"] < 0.3 * rms
+    sharp = peak > CLAP_PEAK and peak > CLAP_OVER_ROOM * room and rms > 4 * room and CL["prev"] < 0.3 * rms
     if sharp and not clap:
         CL["pend"] = (now, rms)
     else:
