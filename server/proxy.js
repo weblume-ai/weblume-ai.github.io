@@ -248,12 +248,12 @@ const server=http.createServer(async(req,res)=>{
     // Jarvis's hands: open an app / site / folder, search, media keys. Run by the listener; the token file is out of a web page's reach
     // "confirmed" is set by the page only after his click on yes; the model's tool calls never carry it
     if(m==="POST"&&p==="/api/do"){const b=await readBody(req),action=String(b.action||""),arg=String(b.arg||"").slice(0,500),confirmed=b.confirmed===true;
-      if(!/^(open_app|close_app|open_website|search_google|search_youtube|play_youtube|open_folder|media|look|click|click_at|type_text|press_keys|window|system|add_reminder|list_reminders|cancel_reminder|weather)$/.test(action))return send(res,400,{error:"Unknown action."});
+      if(!/^(open_app|close_app|open_website|search_google|search_youtube|play_youtube|open_folder|media|look|click|click_at|type_text|press_keys|window|system|add_reminder|list_reminders|cancel_reminder|weather|hide_jarvis)$/.test(action))return send(res,400,{error:"Unknown action."});
       let tok="";try{tok=fs.readFileSync(path.join(ROOT,"desktop",".jarvis-token"),"utf8").trim()}catch(e){return send(res,503,{error:"The Jarvis listener isn't running."})}
       try{if(action==="look"||action==="click")return send(res,200,await jvEyes(action,arg,tok));
         return send(res,200,await jvHand(action,arg,tok,confirmed))}catch(e){return send(res,503,{error:e.message||"The Jarvis listener isn't running."})}}
     // the listener's ears (Whisper on the GPU): it asks here whether the page waits for speech, and posts what it heard to /api/jarvis
-    if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen})}
+    if(m==="GET"&&p==="/api/jarvis/hear"){jvEar=Date.now();return send(res,200,{listen:Date.now()<jvListen,page:Date.now()-jvSeen<4000})}
     if(p==="/api/jarvis"){if(m==="GET"){jvSeen=Date.now();if(qs.get("listen")==="1")jvListen=Date.now()+2500;
         const o={open:jvWant,text:jvText,say:jvSay,hear:Date.now()-jvEar<3000};jvWant=false;jvText=null;jvSay=null;return send(res,200,o)}
       if(m==="POST"){const b=await readBody(req);if(typeof b.say==="string"){jvSay=b.say.trim().slice(0,500);return send(res,200,{ok:true})} // a reminder

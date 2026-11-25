@@ -169,13 +169,23 @@ def save_reminders(rs):
 
 
 def say_now(text):
-    """Jarvis speaks without being asked (a reminder): opens the window if needed, the page says it."""
-    open_jarvis("reminder")
-    try:
-        req = urllib.request.Request(URL + "/api/jarvis", data=json.dumps({"say": text}).encode(), headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=3)
-    except Exception as e:
-        log(f"say failed: {e}")
+    """Jarvis speaks without being asked (a reminder): through an open window, else straight to the speakers.
+    It never opens the window by itself: only two claps do."""
+    if page_open():
+        try:
+            req = urllib.request.Request(URL + "/api/jarvis", data=json.dumps({"say": text}).encode(), headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=3)
+            return
+        except Exception as e:
+            log(f"say failed: {e}")
+    import asyncio
+    import edge_tts
+    mp3 = Path(os.environ.get("TEMP", ".")) / "jarvis-say.mp3"
+    asyncio.run(edge_tts.Communicate(text, "en-GB-RyanNeural", pitch="-6Hz").save(str(mp3)))
+    mci = ctypes.windll.winmm.mciSendStringW  # Windows' own player, no window
+    mci(f'open "{mp3}" type mpegvideo alias jvsay', None, 0, 0)
+    mci("play jvsay wait", None, 0, 0)
+    mci("close jvsay", None, 0, 0)
 
 
 def reminder_loop():
@@ -278,6 +288,27 @@ def click(fx, fy):
     u.mouse_event(4, 0, 0, 0, 0)  # left up
 
 
+# the names he says in Arabic -> what the Start menu / SITES call them
+AR_NAMES = {"كروم": "chrome", "جوجل كروم": "chrome", "جوجل": "google", "يوتيوب": "youtube", "ديسكورد": "discord", "سبوتيفاي": "spotify",
+            "سبوتفاي": "spotify", "واتساب": "whatsapp", "واتس": "whatsapp", "الحاسبة": "calculator", "الاله الحاسبة": "calculator",
+            "حاسبة": "calculator", "فيسبوك": "facebook", "فيس بوك": "facebook", "انستجرام": "instagram", "انستا": "instagram",
+            "تيك توك": "tiktok", "جيميل": "gmail", "الجيميل": "gmail", "الاعدادات": "settings", "الإعدادات": "settings",
+            "نتفليكس": "netflix", "ستيم": "steam", "تيليجرام": "telegram", "تليجرام": "telegram", "الرسام": "paint",
+            "المفكرة": "notepad", "النوت باد": "notepad", "الكاميرا": "camera", "ايدج": "edge", "اوبرا": "opera", "زووم": "zoom",
+            "فيجوال ستوديو": "visual studio code", "في اس كود": "vscode", "شات جي بي تي": "chatgpt", "جيت هاب": "github",
+            "اوتلوك": "outlook", "وورد": "word", "اكسل": "excel", "باور بوينت": "powerpoint", "مدير المهام": "task manager",
+            "الملفات": "file explorer", "كاب كات": "capcut", "اوبس": "obs", "ميدال": "medal", "انفيديا": "nvidia"}
+
+
+def english_name(name):
+    """«سبوتيفاي» -> spotify; English names pass through."""
+    n = re.sub(r"^(برنامج|تطبيق|ال?ابلكيشن|موقع)\s+", "", name.strip().strip("،.!؟?"))
+    for k in (n, n.removeprefix("ال")):
+        if k in AR_NAMES:
+            return AR_NAMES[k]
+    return n
+
+
 def find_app(name):
     """The Start menu shortcut whose name best matches (installed programs only)."""
     name = name.lower().strip()
@@ -362,6 +393,13 @@ def act(action, arg, confirmed=False):
             return ("CONFIRM", what.capitalize() + " the PC")
         subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
         return f"{what.capitalize()} in a few seconds, sir."
+    if action == "hide_jarvis":  # «اقفل»: a page can't always close its own window, so close it like its X
+        h = ctypes.windll.user32.FindWindowW(None, "Phainora AI")
+        if h:
+            ctypes.windll.user32.PostMessageW(h, 0x0010, 0, 0)  # WM_CLOSE
+        return "Closed."
+    if action in ("open_app", "close_app"):
+        arg = english_name(arg)
     if action == "open_app":
         key = arg.lower()
         if key in SITES:
@@ -516,11 +554,19 @@ def post_text(text):
         log(f"post failed: {e}")
 
 
-def page_waits():
+def hear_state():
     try:
-        return json.load(urllib.request.urlopen(URL + "/api/jarvis/hear", timeout=0.3)).get("listen", False)
+        return json.load(urllib.request.urlopen(URL + "/api/jarvis/hear", timeout=0.3))
     except Exception:
-        return False
+        return {}
+
+
+def page_waits():
+    return hear_state().get("listen", False)
+
+
+def page_open():
+    return hear_state().get("page", False)
 
 
 def is_double_clap(times, now):
@@ -621,11 +667,12 @@ def hear(pcm, talk, room, claps, last, n, model, ears, before, start):
             if ears.model:
                 before.clear()  # the claps themselves aren't part of the request
                 talk = start(True)
+    # only two claps open Jarvis (his choice); "Hey Jarvis" just gets its attention while the window is already open
     if score > WAKE_SCORE and now - last > COOLDOWN:
         last = now
         model.reset()
-        open_jarvis(f"hey jarvis {score:.2f}")
-        if ears.model:  # "Hey Jarvis, what's the weather": the request right after the name (the name is in the pre-roll; ask() drops it)
+        if ears.model and page_open():  # "Hey Jarvis, what's the weather": the request right after the name (in the pre-roll; ask() drops it)
+            log(f"hey jarvis {score:.2f}")
             talk = start(True)
     return talk, room, claps, last, n
 

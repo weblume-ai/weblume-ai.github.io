@@ -2083,17 +2083,33 @@ async function quick(q){const k=cfg.keys&&cfg.keys.groq;if(!k)return "";
 // (\b doesn't work next to Arabic letters, so the ends are spelled out)
 const JV_FAST=[[/^(ا?وق[فّ](لي|ه|ها)?|ستوب|pause|stop)(?=$|[\s،.!؟]*$)|ا?وق[فّ]\S*\s+(ال)?(فيديو|اغني|أغني|مزيك|موسيق|تشغيل)/i,"play_pause","Paused, sir."],
   [/^(كم[ّ]?ل|كمله|كمليه|شغ[ّ]?ل(ه)? تاني|resume|continue)(?=$|[\s،.!؟]*$)|^كم[ّ]?ل\S*\s+(ال)?(فيديو|اغني|أغني|مزيك)/i,"play_pause","Playing, sir."],
-  [/(اللي بعده|التالي|التالية|next|سكيب|skip)/i,"next","Next one, sir."],[/(اللي قبله|السابق|previous|back song)/i,"previous","Going back, sir."],
+  [/(اللي بعده|اللي بعدها|التالي|التالية|بد[ّ]?ل|غي[ّ]?ر الاغني|غي[ّ]?ر الأغني|next|سكيب|skip)/i,"next","Next one, sir."],[/(اللي قبله|السابق|previous|back song)/i,"previous","Going back, sir."],
   [/(ع[لّ]ي|ارفع|زو[ّ]?د)\s*(الصوت)|louder|volume up/i,"volume_up","Turning it up."],[/(و[طّ]ي|قل[ّ]?ل|اخفض)\s*(الصوت)|quieter|volume down/i,"volume_down","Turning it down."],
   [/^(اسكت|كتم|اكتم|mute)|اقفل الصوت/i,"mute","Muted, sir."]];
+// goodbye: hide Jarvis, then close the window (the listener closes it like its X when the page isn't allowed to); two claps opens it again
+function jvBye(){close_();try{window.close()}catch(e){}fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"hide_jarvis",arg:""})}).catch(()=>{})}
+// «افتح سبوتيفاي» -> ["open_app","سبوتيفاي"], «شغل أول أغنية في تراك X» -> ["play_youtube","X"], «اقفل» -> "bye"
+function jvCommand(s){s=s.replace(/[.،!؟?]+$/,"").trim();if(/\sو(شغ|اكتب|دور|ابحث|اضغط|افتح|اقفل|روح)|\sand\s/i.test(s))return null;
+  if(/^(اقفل|اقفلي|اقفل نفسك|اقفل جارفيس|باي|سلام|bye|close|close yourself)$/i.test(s))return "bye";
+  let m=s.match(/^(?:افتح(?:لي)?|شغ[ّ]?ل(?:لي)? (?:برنامج|تطبيق)|open)\s+(.{2,40})$/i);if(m)return["open_app",m[1]];
+  m=s.match(/^(?:اقفل(?:لي)?|close)\s+(.{2,40})$/i);if(m)return["close_app",m[1]];
+  m=s.match(/^(?:شغ[ّ]?ل(?:لي|ي)?|play)\s+(.{2,80})$/i);
+  if(m){const what=m[1].replace(/^(لي\s+)?(أول|اول|first)\s+/i,"").replace(/^(أغنية|اغنية|اغنيه|أغنيه|الأغنية|الاغنية|أغاني|اغاني|song|track)\s+/i,"").replace(/^(في|من|ف)\s+/,"")
+      .replace(/^(تراك|ألبوم|البوم|الألبوم|album)\s+/i,"").replace(/\s+(على|ع|في|من)\s+(يوتيوب|اليوتيوب|youtube)$/i,"").trim();if(what.length>1)return["play_youtube",what]}
+  return null}
 async function ask(q){if(!q.replace(WAKE," ").replace(/[\s.،,!؟?]+/g,"")){awake=Date.now()+9000;say("Yes, sir?");return} // only its name: answer and wait
   if(busy){say("One moment, sir, I'm still on the last one.");return}
   stopRec();awake=0;reply="";$("#jv-you").textContent=q;$("#jv-say").textContent="";setMode("think");
   // media in one go, no model: "وقف الفيديو" acts at once
   const bare=q.replace(WAKE," ").trim(),fast=JV_FAST.find(([rx])=>rx.test(bare));
   if(fast&&bare.split(/\s+/).length<=5){fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"media",arg:fast[1]})}).catch(()=>{});say(fast[2]);return}
+  // open / play / close in one go too; a request with two steps ("افتح يوتيوب وشغل…") goes to the model
+  const quickDo=(action,arg)=>fetch("/api/do",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,arg})}).then(x=>x.json()).catch(()=>({}));
+  const cmd=jvCommand(bare);
+  if(cmd==="bye"){say("Goodbye, sir.",jvBye);return}
+  if(cmd){const d=await quickDo(cmd[0],cmd[1]);if(d.result&&!/couldn't find|won't|isn't open/i.test(d.result)){say(d.result.replace(/ in Chrome\./,"."));return}}
   if(classifyTask(q)==="chat"){const a=await quick(q);
-    if(a==="__BYE__"){say("Goodbye, sir.",()=>{close_();try{window.close()}catch(e){}});return} // a Jarvis-only window closes; two claps opens it again
+    if(a==="__BYE__"){say("Goodbye, sir.",jvBye);return} // a Jarvis-only window closes; two claps opens it again
     if(a){say(a);return}}
   $("#msg").value=q;send()}
 addEventListener("wl-text",e=>{reply=e.detail});
