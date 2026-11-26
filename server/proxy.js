@@ -3,6 +3,7 @@
 // so API keys stay in environment variables. Provider endpoints are fixed in server/providers/*, never taken from the client.
 const http=require("http"),fs=require("fs"),path=require("path"),{Readable}=require("stream");
 const ROOT=path.join(__dirname,"..");
+const TPL_DIR=process.env.PHAINORA_TEMPLATES||path.join(ROOT,"..","phainora-examples","_training");
 (function loadEnv(){ // minimal .env reader; real environment variables win. No inline comments, one KEY=value per line.
   try{for(const l of fs.readFileSync(path.join(ROOT,".env"),"utf8").split(/\r?\n/)){
     const m=l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);if(!m||l.trim().startsWith("#"))continue;
@@ -223,6 +224,10 @@ const server=http.createServer(async(req,res)=>{
       if(r.redirect){res.writeHead(302,{...baseHeaders,Location:r.redirect});return res.end()}
       res.writeHead(r.code,{...baseHeaders,"Content-Type":"text/html; charset=utf-8"});return res.end('<!doctype html><meta charset="utf-8"><body dir="rtl" style="font:18px system-ui;padding:40px">'+r.html)}
     if(m==="POST"&&p==="/api/deploy"){const b=await readBody(req);return out(res,await deploy.deploy(b.site,String(b.project||"").trim().toLowerCase()))}
+    // the 96 Phainora sites the local model was trained on, as starting designs: it keeps one's <head>/CSS and writes the rest
+    if(m==="GET"&&p==="/api/templates"){try{return send(res,200,{list:JSON.parse(fs.readFileSync(path.join(TPL_DIR,"examples.json"),"utf8"))})}catch(e){return send(res,200,{list:[]})}}
+    if(m==="GET"&&p==="/api/template"){const f=String(qs.get("file")||"");if(!/^[a-z0-9-]+\.html$/.test(f))return send(res,400,{error:"bad name"});
+      try{return send(res,200,{html:fs.readFileSync(path.join(TPL_DIR,f),"utf8")})}catch(e){return send(res,404,{error:"not found"})}}
     if(p==="/api/memory"){if(m==="GET")return send(res,200,{notes:readMemory()});
       if(m==="POST"){const b=await readBody(req);return out(res,addMemory(b.text))}
       if(m==="DELETE"){const b=await readBody(req);return out(res,forgetMemory(b.texts))}

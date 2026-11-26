@@ -351,7 +351,7 @@ async function chatOnce(cfg,messages,onEvent,signal,noTools){
   const fail=e=>(e&&e.name==="AbortError")?new Error(timedOut?"⏱ السيرفر ماردش لمدة "+Math.round(IDLE_MS/1000)+" ثانية. الموديل بطيء أو السيرفر واقف.":"⏹ اتوقف"):e;
   try{
     idle();let r;
-    try{r=await fetch(cfg.url.replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers,signal:ac.signal,body:JSON.stringify(noTools||lean(cfg)?{model:cfg.model,messages,stream:true}:{model:cfg.model,messages,tools:toolDefs(!!cfg._free),stream:true})})}
+    try{r=await fetch(cfg.url.replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers,signal:ac.signal,body:JSON.stringify(Object.assign(noTools||lean(cfg)?{model:cfg.model,messages,stream:true}:{model:cfg.model,messages,tools:toolDefs(!!cfg._free),stream:true},/phainora/i.test(String(cfg.model||""))?{reasoning_effort:"none"}:{}))})}
     catch(e){if(e&&e.name==="AbortError")throw fail(e);throw new Error("مش قادر أوصل لـ "+cfg.url+"\nتأكد إن السيرفر شغال. لو شغال فالمشكلة غالباً CORS (شوف تعليمات الإعدادات).")}
     if(!r.ok){
       const t=(await r.text()).slice(0,300);
@@ -434,6 +434,34 @@ const WL_SYS="اسمك Phainora AI، مساعد شركة Phainora لعمل ال�
 const WL_HELPERS=["gemini","mistral","groq","cerebras","nvidia","openrouter"];
 const WL_HELP_SYS="انت المساعد اللي بيفهم طلب العميل وبيكلّمه، وبعدين بيدّي أمر واضح لموديل برمجة صغير اسمه weblume بيكتب مواقع HTML بس، ومش بيفهم الكلام المعقد ولا الأخطاء الإملائية.\nاقرا المحادثة وآخر رسالة من المستخدم، ورد بـ JSON بس من غير أي كلام قبله أو بعده:\n{\"mode\":\"build\"|\"edit\"|\"chat\",\"who\":\"weblume\"|\"cloud\",\"reply\":\"...\",\"brief\":\"...\"}\n- build: عايز موقع أو صفحة جديدة. brief = طلب واضح بالمصري (من ٢ لـ ٥ سطور) يبدأ بـ «اعملي موقع»: نوع الموقع واسمه (اخترع اسم مناسب لو مش موجود)، لمين، الأقسام المهمة، وأي ألوان أو تفاصيل قالها المستخدم. صحّح الأخطاء الإملائية وفسّر المصطلحات (مثلًا «الايم في فالورنت» يعني التدريب على التصويب Aim في لعبة Valorant).\n- edit: عايز يعدّل الموقع اللي اتعمل قبل كده في المحادثة. brief = التعديل المطلوب بالظبط في جملة أو اتنين.\n- chat: سؤال أو كلام عادي مش محتاج كود جديد. reply = ردك انت بالمصري، ودود ومختصر ومفيد (markdown مسموح). brief فاضي.\n- في build و edit: reply = سطر واحد بالمصري بيقول هتعمل إيه.\n- who (في build و edit): \"weblume\" لو الطلب موقع تعريفي أو تسويقي لنشاط أو شخص (كافيه، مطعم، عيادة، محل، شركة، صالون، جيم، بورتفوليو، لاندينج بيدج) أو تعديل بسيط عليه. \"cloud\" لو الطلب حاجة تفاعلية أو جديدة: لعبة، أداة، حاسبة، تطبيق، داشبورد، تدريب تفاعلي، متجر بسلة وحسابات، أو أي حاجة محتاجة JavaScript كتير أو لغة برمجة تانية غير HTML.\nممنوع تكتب أرقام تليفونات من عندك.";
 function wlLastSite(history){for(let i=history.length-1;i>=0;i--){const m=history[i];if(m.role!=="assistant")continue;const c=String(m.content||"");const k=c.search(/<!doctype html|<html[\s>]/i),e=c.lastIndexOf("</html>");if(k>=0&&e>k)return c.slice(k,e+7)}return ""}
+// Phainora Gemma (local) builds like it was trained (training/phainora_parts.py, same wording): it keeps the <head>/CSS of the
+// closest of the 96 Phainora sites, writes the <body> for this client, then the script. A small model writing all 30k chars at once
+// left empty sections and stopped mid-page; one step at a time it stays at the design quality of the sites themselves.
+const WL_STEP2="\n\nالخطوة 2 من 3: ده أول الملف (التصميم) اللي اتكتب:\n```html\n{head}\n```\nاكتب الـ <body> كامل بكل السكاشن والنصوص، بنفس الكلاسات اللي في الـ CSS، ومن غير أي <script>.";
+const WL_STEP3="\n\nالخطوة 3 من 3: ده الـ <body> اللي اتكتب:\n```html\n{body}\n```\nاكتب السكريبتات بس (الترجمة للإنجليزي بزرار EN، والأنيميشن، وأي تفاعل) لحد </html>.";
+const wlBlock=t=>{const m=String(t||"").match(/```html\s*([\s\S]*?)(```|$)/i);return m?m[1].trim():""};
+function wlPickLocal(brief,list){const w=s=>new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>2));const b=w(brief);let best=0,bi=0;
+  list.forEach((t,i)=>{let n=0;for(const x of w(t.request))if(b.has(x))n++;if(n>best){best=n;bi=i}});return bi}
+async function wlTemplateBuild(cfg,brief,hp,onEvent,signal){
+  let list=[];try{list=(await srvJson("/api/templates",null,signal)).list||[]}catch(e){}
+  if(!list.length){onEvent({type:"step",text:"⚠️ مواقع Phainora مش موجودة على الجهاز، هيكتب من الصفر"});return ""}
+  let k=-1;const helper=[hp,...WL_HELPERS].find(p=>p&&usable(p));
+  if(helper){try{const P=PROVIDERS[helper];onEvent({type:"step",phase:"بيختار التصميم",text:"🎨 بيختار أقرب تصميم من "+list.length+" موقع"});
+    const r=await chatOnce({url:P.url,model:cfg.pm[helper]||P.model,key:cfg.keys[helper]},[{role:"system",content:"اختار أنسب تصميم لطلب العميل من القايمة (نفس نوع النشاط والإحساس). رد برقم بس."},
+      {role:"user",content:"الطلب: "+brief+"\n\nالتصاميم:\n"+list.map((t,i)=>i+": "+String(t.request).slice(0,160)).join("\n")}],null,signal,true);
+    const n=parseInt(String(r.content||"").match(/\d+/)||"-1",10);if(n>=0&&n<list.length)k=n}catch(e){if(String(e.message).startsWith("⏹"))throw e}}
+  if(k<0)k=wlPickLocal(brief,list);
+  let tpl="";try{tpl=(await srvJson("/api/template?file="+encodeURIComponent(list[k].file),null,signal)).html||""}catch(e){}
+  const i=tpl.toLowerCase().indexOf("</head>");if(i<0)return "";
+  const head=tpl.slice(0,i+7).trim();
+  onEvent({type:"step",phase:"بيكتب المحتوى",text:"💻 الخطوة 2 من 3: بيكتب سكاشن الموقع على تصميم «"+list[k].file.replace(/\.html$/,"")+"»"});
+  const s2=await chatOnce(cfg,[{role:"user",content:brief+WL_STEP2.replace("{head}",head)}],onEvent,signal,true);
+  const body=wlBlock(s2.content).replace(/<script\b[\s\S]*?<\/script>/gi,"").replace(/<\/body>\s*(<\/html>)?\s*$/i,"").trim();
+  if(!/<body/i.test(body)||!/<\/(section|footer|main)>/i.test(body)){onEvent({type:"step",text:"⚠️ المحتوى مطلعش كامل"});return ""}
+  onEvent({type:"step",phase:"بيكتب السكريبت",text:"💻 الخطوة 3 من 3: الترجمة والأنيميشن"});
+  const s3=await chatOnce(cfg,[{role:"user",content:brief+WL_STEP3.replace("{body}",body)}],onEvent,signal,true);
+  let script=wlBlock(s3.content);if(!/<\/html>/i.test(script))script=(script?script+"\n":"")+"</body>\n</html>";
+  return head+"\n"+body+"\n"+script}
 async function runWeblume(cfg,skills,history,onEvent,signal){
   const lastU=[...history].reverse().find(m=>m.role==="user"),ut=lastU?String(lastU.content):"";
   const prev=wlLastSite(history.slice(0,-1));
@@ -459,6 +487,8 @@ async function runWeblume(cfg,skills,history,onEvent,signal){
     if(await cloudRun(plan.who==="cloud"?"الطلب ده تفاعلي ومحتاج موديل أكبر":"تعديل على ملف كبير"))return;
     throw new Error("الطلب ده محتاج موديل سحابي (Gemini أو Mistral)، ومفيش مصدر منهم ردّ دلوقتي. راجع المفاتيح في الإعدادات أو النت وجرّب تاني.")}
   if(plan.mode==="chat"){const msg={role:"assistant",content:String(plan.reply)};history.push(msg);onEvent({type:"text",text:msg.content});return}
+  if(plan.mode==="build"&&/phainora/i.test(String(cfg.model||""))){const site=await wlTemplateBuild(cfg,String(plan.brief),hp,onEvent,signal);
+    if(site){const c="🎨 اتبنى على تصميم من مواقع Phainora، بالمحتوى بتاعك.\n\n📄 index.html\n```html\n"+site+"\n```";history.push({role:"assistant",content:c});onEvent({type:"text",text:c});return}}
   onEvent({type:"step",phase:"بيكتب الكود",text:"💻 weblume بيكتب "+(plan.mode==="edit"?"التعديل":"الموقع")+": "+String(plan.brief).slice(0,300)});
   const user=plan.mode==="edit"?String(plan.brief)+"\n\n```html\n"+prev+"\n```":String(plan.brief);
   const msg=await chatOnce(cfg,[{role:"system",content:WL_SYS},{role:"user",content:user}],onEvent,signal,true);
@@ -554,7 +584,7 @@ async function fillPhotos(code){const want=new Map();
 // house rule enforced in code: an embedded Google map becomes a directions button to the same place
 function noMapFrames(code){return code.replace(/<iframe\b[^>]*src="([^"]*google\.[^"]*\/maps[^"]*)"[^>]*>\s*<\/iframe>/gi,(t,u)=>{const q=(u.match(/[?&]q=([^&]+)/)||[])[1]||"";const href="https://www.google.com/maps/search/?api=1&query="+(q||"");return '<a class="btn" href="'+href+'" target="_blank" rel="noopener">الاتجاهات ←</a>'})}
 async function runAgent(cfg,skills,history,onEvent,signal){
-  if(provOf(cfg)==="local"&&/weblume/i.test(String(cfg.model||"")))return runWeblume(cfg,skills,history,onEvent,signal);
+  if(provOf(cfg)==="local"&&/weblume|phainora/i.test(String(cfg.model||"")))return runWeblume(cfg,skills,history,onEvent,signal);
   const lastU=[...history].reverse().find(m=>m.role==="user"),ut=lastU?String(lastU.content):"";
   const TPL=new Set(["pdf-viewer-site","site-template","quran-reader-site","restaurant-cafe-site","ecommerce-site","portfolio-site","charts-dashboard","html-page","design-palettes","frontend-frameworks","python-web-app","php-site","node-fullstack","java-spring","csharp-dotnet","go-web","flutter-mobile","any-language","prayer-times-site"]);const hit0=skills.filter(x=>{try{return x.kw&&new RegExp(x.kw,"i").test(ut)}catch(e){return false}}).sort((a,b)=>(b.pri||0)-(a.pri||0));const fac=/مصنع|factory/i.test(ut);const site=wantsSite(ut);const free=site&&!fac&&!cfg.tpl&&!wantsTemplate(ut);const biz=!site&&/(عرض سعر|عرض اسعار|عرض أسعار|تسعير|بروبوزال|proposal|عقد|فاتور|بوست|كابشن|caption|إعلان|اعلان|ريلز|reels|رسال[ةه]|لوحة تحكم|لوحه تحكم|supabase|برومبت|prompt)/i.test(ut);const hit=site||biz?hit0.filter(x=>!TPL.has(x.name)&&!/site|page|palette|design|css|effects|tailwind/.test(x.name)):hit0.length&&hit0[0].ex?hit0.filter(x=>x.ex||!TPL.has(x.name)):hit0;const bcg=site&&!free?skills.find(x=>x.name==="build-copy-guide"):null;const auto=free?FREE_SKILLS.map(f=>{const u=skills.find(x=>x.name===f.name);return u&&u.body?u.body:f.body}).join("\n\n"):(bcg?[bcg]:[]).concat(hit.filter(x=>x!==bcg)).reduce((a,x)=>{const l=a.reduce((n,y)=>n+y.body.length,0);if(a.length<3&&(!a.length||l+x.body.length<=16000))a.push(x);return a},[]).map(x=>x.body).join("\n\n");
   const usedDirs=history.filter(m=>m.role==="assistant").map(m=>String(m.content||"")).join(" ");const dir=free?pickDirection(ut,usedDirs):null;const hasPrev=free&&history.some(m=>m.role==="assistant"&&/<\/html>/i.test(String(m.content||"")));
