@@ -13,7 +13,7 @@ from openwakeword.model import Model
 URL = "http://127.0.0.1:8787"
 RATE, CHUNK = 16000, 1280             # 80 ms blocks, what openWakeWord expects
 WAKE_SCORE = float(os.environ.get("JARVIS_WAKE", 0.5))
-CLAP_PEAK = float(os.environ.get("JARVIS_CLAP", 0.5))   # peak level of a clap (0..1); his claps reach 0.9+
+CLAP_PEAK = float(os.environ.get("JARVIS_CLAP", 0.75))  # peak level of a clap (0..1); his claps reach 0.9+, keys/desk knocks ~0.5 opened it (2026-11-26)
 CLAP_DECAY = 0.35                     # the next 80 ms must be this much quieter (a clap dies at once, speech doesn't)
 CL = {"prev": 0.0, "pend": None, "double": None}  # clap state between blocks
 CLAP_OVER_ROOM = 12                   # and this many times louder than the room (music or a video playing passed at 8)
