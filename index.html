@@ -434,34 +434,69 @@ const WL_SYS="اسمك Phainora AI، مساعد شركة Phainora لعمل ال�
 const WL_HELPERS=["gemini","mistral","groq","cerebras","nvidia","openrouter"];
 const WL_HELP_SYS="انت المساعد اللي بيفهم طلب العميل وبيكلّمه، وبعدين بيدّي أمر واضح لموديل برمجة صغير اسمه weblume بيكتب مواقع HTML بس، ومش بيفهم الكلام المعقد ولا الأخطاء الإملائية.\nاقرا المحادثة وآخر رسالة من المستخدم، ورد بـ JSON بس من غير أي كلام قبله أو بعده:\n{\"mode\":\"build\"|\"edit\"|\"chat\",\"who\":\"weblume\"|\"cloud\",\"reply\":\"...\",\"brief\":\"...\"}\n- build: عايز موقع أو صفحة جديدة. brief = طلب واضح بالمصري (من ٢ لـ ٥ سطور) يبدأ بـ «اعملي موقع»: نوع الموقع واسمه (اخترع اسم مناسب لو مش موجود)، لمين، الأقسام المهمة، وأي ألوان أو تفاصيل قالها المستخدم. صحّح الأخطاء الإملائية وفسّر المصطلحات (مثلًا «الايم في فالورنت» يعني التدريب على التصويب Aim في لعبة Valorant).\n- edit: عايز يعدّل الموقع اللي اتعمل قبل كده في المحادثة. brief = التعديل المطلوب بالظبط في جملة أو اتنين.\n- chat: سؤال أو كلام عادي مش محتاج كود جديد. reply = ردك انت بالمصري، ودود ومختصر ومفيد (markdown مسموح). brief فاضي.\n- في build و edit: reply = سطر واحد بالمصري بيقول هتعمل إيه.\n- who (في build و edit): \"weblume\" لو الطلب موقع تعريفي أو تسويقي لنشاط أو شخص (كافيه، مطعم، عيادة، محل، شركة، صالون، جيم، بورتفوليو، لاندينج بيدج) أو تعديل بسيط عليه. \"cloud\" لو الطلب حاجة تفاعلية أو جديدة: لعبة، أداة، حاسبة، تطبيق، داشبورد، تدريب تفاعلي، متجر بسلة وحسابات، أو أي حاجة محتاجة JavaScript كتير أو لغة برمجة تانية غير HTML.\nممنوع تكتب أرقام تليفونات من عندك.";
 function wlLastSite(history){for(let i=history.length-1;i>=0;i--){const m=history[i];if(m.role!=="assistant")continue;const c=String(m.content||"");const k=c.search(/<!doctype html|<html[\s>]/i),e=c.lastIndexOf("</html>");if(k>=0&&e>k)return c.slice(k,e+7)}return ""}
-// Phainora Gemma (local) builds like it was trained (training/phainora_parts.py, same wording): it keeps the <head>/CSS of the
-// closest of the 96 Phainora sites, writes the <body> for this client, then the script. A small model writing all 30k chars at once
-// left empty sections and stopped mid-page; one step at a time it stays at the design quality of the sites themselves.
-const WL_STEP2="\n\nالخطوة 2 من 3: ده أول الملف (التصميم) اللي اتكتب:\n```html\n{head}\n```\nاكتب الـ <body> كامل بكل السكاشن والنصوص، بنفس الكلاسات اللي في الـ CSS، ومن غير أي <script>.";
-const WL_STEP3="\n\nالخطوة 3 من 3: ده الـ <body> اللي اتكتب:\n```html\n{body}\n```\nاكتب السكريبتات بس (الترجمة للإنجليزي بزرار EN، والأنيميشن، وأي تفاعل) لحد </html>.";
-const wlBlock=t=>{const m=String(t||"").match(/```html\s*([\s\S]*?)(```|$)/i);return m?m[1].trim():""};
+// Phainora Gemma (local) builds on the closest of the 96 Phainora sites and changes only its texts: the HTML, CSS, animation
+// and script stay exactly as designed. Writing the markup itself (whole, or in steps) broke the layout; the swap keeps the
+// design quality of the sites themselves and takes ~40 s (tested 2026-11-27 on a café built on samar-cafe).
+const WL_ATTRS=["alt","placeholder","aria-label","title","content","value","data-plan","data-pkg"],WL_AR=/[؀-ۿ]/;
+function wlTexts(html){const d=new DOMParser().parseFromString(html,"text/html"),out=[];
+  const w=d.createTreeWalker(d.documentElement,NodeFilter.SHOW_TEXT);for(let n;(n=w.nextNode());){if(!n.parentElement.closest("script,style,.logo")&&WL_AR.test(n.nodeValue))out.push(n.nodeValue.trim())}
+  d.querySelectorAll(".logo").forEach(el=>{const t=el.textContent.trim();if(WL_AR.test(t))out.push(t)});
+  d.querySelectorAll("*").forEach(el=>WL_ATTRS.forEach(k=>{const v=el.getAttribute(k);if(v&&WL_AR.test(v))out.push(v.trim())}));
+  return [...new Set(out.filter(Boolean))]}
 function wlPickLocal(brief,list){const w=s=>new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(x=>x.length>2));const b=w(brief);let best=0,bi=0;
   list.forEach((t,i)=>{let n=0;for(const x of w(t.request))if(b.has(x))n++;if(n>best){best=n;bi=i}});return bi}
 async function wlTemplateBuild(cfg,brief,hp,onEvent,signal){
   let list=[];try{list=(await srvJson("/api/templates",null,signal)).list||[]}catch(e){}
   if(!list.length){onEvent({type:"step",text:"⚠️ مواقع Phainora مش موجودة على الجهاز، هيكتب من الصفر"});return ""}
-  let k=-1;const helper=[hp,...WL_HELPERS].find(p=>p&&usable(p));
-  if(helper){try{const P=PROVIDERS[helper];onEvent({type:"step",phase:"بيختار التصميم",text:"🎨 بيختار أقرب تصميم من "+list.length+" موقع"});
-    const r=await chatOnce({url:P.url,model:cfg.pm[helper]||P.model,key:cfg.keys[helper]},[{role:"system",content:"اختار أنسب تصميم لطلب العميل من القايمة (نفس نوع النشاط والإحساس). رد برقم بس."},
-      {role:"user",content:"الطلب: "+brief+"\n\nالتصاميم:\n"+list.map((t,i)=>i+": "+String(t.request).slice(0,160)).join("\n")}],null,signal,true);
+  let k=-1;onEvent({type:"step",phase:"بيختار التصميم",text:"🎨 بيختار أقرب تصميم من "+list.length+" موقع"});
+  for(const helper of [hp,...WL_HELPERS].filter((p,x,a)=>p&&usable(p)&&a.indexOf(p)===x)){if(k>=0)break;try{const P=PROVIDERS[helper];  // next helper when one is out of quota
+    const r=await chatOnce({url:P.url,model:cfg.pm[helper]||P.model,key:cfg.keys[helper]},[{role:"system",content:"اختار أنسب تصميم لطلب العميل من القايمة: نفس نوع النشاط بالظبط الأول (حلاق رجالي = barber مش صالون ستات، مطعم مش كافيه)، وبعدين الإحساس. رد برقم بس."},
+      {role:"user",content:"الطلب: "+brief+"\n\nالتصاميم:\n"+list.map((t,i)=>i+" ("+t.file.replace(/\.html$/,"")+"): "+String(t.request).slice(0,160)).join("\n")}],null,signal,true);
     const n=parseInt(String(r.content||"").match(/\d+/)||"-1",10);if(n>=0&&n<list.length)k=n}catch(e){if(String(e.message).startsWith("⏹"))throw e}}
   if(k<0)k=wlPickLocal(brief,list);
   let tpl="";try{tpl=(await srvJson("/api/template?file="+encodeURIComponent(list[k].file),null,signal)).html||""}catch(e){}
-  const i=tpl.toLowerCase().indexOf("</head>");if(i<0)return "";
-  const head=tpl.slice(0,i+7).trim();
-  onEvent({type:"step",phase:"بيكتب المحتوى",text:"💻 الخطوة 2 من 3: بيكتب سكاشن الموقع على تصميم «"+list[k].file.replace(/\.html$/,"")+"»"});
-  const s2=await chatOnce(cfg,[{role:"user",content:brief+WL_STEP2.replace("{head}",head)}],onEvent,signal,true);
-  const body=wlBlock(s2.content).replace(/<script\b[\s\S]*?<\/script>/gi,"").replace(/<\/body>\s*(<\/html>)?\s*$/i,"").trim();
-  if(!/<body/i.test(body)||!/<\/(section|footer|main)>/i.test(body)){onEvent({type:"step",text:"⚠️ المحتوى مطلعش كامل"});return ""}
-  onEvent({type:"step",phase:"بيكتب السكريبت",text:"💻 الخطوة 3 من 3: الترجمة والأنيميشن"});
-  const s3=await chatOnce(cfg,[{role:"user",content:brief+WL_STEP3.replace("{body}",body)}],onEvent,signal,true);
-  let script=wlBlock(s3.content);if(!/<\/html>/i.test(script))script=(script?script+"\n":"")+"</body>\n</html>";
-  return head+"\n"+body+"\n"+script}
+  const S=wlTexts(tpl);if(S.length<10)return "";
+  const title=(tpl.match(/<title>([\s\S]*?)<\/title>/i)||["",""])[1];
+  onEvent({type:"step",phase:"بيكتب المحتوى",text:"💻 بيكتب نصوص موقعك على تصميم «"+list[k].file.replace(/\.html$/,"")+"» ("+S.length+" نص)"});
+  const prompt="ده كل نصوص موقع جاهز لعميل تاني اسمه «"+title+"» ("+S.length+" نص)، مرقّمة:\n"+S.map((t,n)=>n+". "+t).join("\n")+
+    "\n\nطلب العميل الجديد: "+brief+"\n\nاكتب نصوص جديدة لموقع العميل الجديد مكان كل نص: نفس العدد ونفس الترتيب ونفس دور كل نص (عنوان يفضل عنوان، زرار يفضل زرار، سعر يفضل سعر بعملة البلد) وطول قريب منه.\n"+
+    "- أي نص أكتر من كلمتين لازم يتكتب من جديد بكلام مختلف عن الأصل، عن العميل الجديد (اسمه ونشاطه ومدينته ومميزاته). ممنوع تنسخ جمل الموقع القديم.\n"+
+    "- الكلمات القصيرة العامة (زي القائمة، احجز، الأسعار) ممكن تفضل زي ما هي.\n- ومع كل نص الترجمة الإنجليزي.\n"+
+    'رد بـ JSON object بس، المفتاح رقم النص: {"0": ["النص العربي الجديد", "English"], "1": [...], ...} لحد آخر رقم.';
+  // short texts (big hero words, buttons, labels) that grow much longer overflow the design: those keep the template's text
+  const fits=(old,nu)=>old.length>25||nu.length<=Math.max(old.length*1.6,old.length+6);
+  const ask=async(t)=>{const h={"Content-Type":"application/json"};if(t.key)h.Authorization="Bearer "+t.key;
+    const r=await fetch(t.url.replace(/\/+$/,"")+"/chat/completions",{method:"POST",headers:h,signal,
+      body:JSON.stringify(Object.assign({model:t.model,response_format:{type:"json_object"},temperature:0.7,max_tokens:12000,messages:[{role:"user",content:prompt}]},t.extra||{}))});
+    const j=await r.json();if(!j.choices)throw new Error(String((j.error&&j.error.message)||"HTTP "+r.status));
+    const c=String((j.choices[0].message||{}).content||"");const m=c.match(/\{[\s\S]*\}/);const o=m?JSON.parse(m[0]):{};
+    // a missing or odd entry keeps the template's own text (generic labels like «القائمة» are often meant to stay)
+    return S.map((old,n)=>{const v=o[String(n)];return Array.isArray(v)&&typeof v[0]==="string"&&typeof v[1]==="string"&&v[0].trim()&&fits(old,v[0].trim())?[old,v[0].trim(),v[1].trim()]:[old,old,old]})};
+  // the local model first; it tends to copy a same-type template's sentences, so then a free cloud model rewrites them (~5 s)
+  const copied=p=>S.filter((old,n)=>old.split(/\s+/).length>2&&p[n][1]===old).length,longs=S.filter(t=>t.split(/\s+/).length>2).length;
+  const who=[{label:"Phainora Gemma",url:cfg.url,model:cfg.model,key:cfg.key,extra:{reasoning_effort:"none"}},
+    ...[hp,...WL_HELPERS].filter((p,x,a)=>p&&usable(p)&&a.indexOf(p)===x).map(p=>({label:PROVIDERS[p].label,url:PROVIDERS[p].url,model:cfg.pm[p]||PROVIDERS[p].model,key:cfg.keys[p]}))];
+  let pairs=[];
+  for(const t of who){let p;try{p=await ask(t)}catch(e){if(signal&&signal.aborted)throw new Error(STOP);onEvent({type:"step",text:"⚠️ "+t.label+": "+String(e.message).slice(0,100)});continue}
+    if(!pairs.length||copied(p)<copied(pairs))pairs=p;
+    if(copied(pairs)<=longs/4)break;onEvent({type:"step",text:"🔁 "+t.label+" نسخ جمل من الموقع الأصلي، هيكتبها موديل تاني"})}
+  if(pairs.length&&pairs.every(p=>p[1]===p[0]))pairs=[];
+  if(!pairs.length){onEvent({type:"step",text:"⚠️ الموديل مغيّرش نصوص كفاية"});return ""}
+  // on the DOM, not by text matching: pieces split by tags (logos with an icon or an accent letter) still map exactly
+  const map=new Map(pairs.map(p=>[p[0],p[1]])),d=new DOMParser().parseFromString(tpl,"text/html");
+  const w=d.createTreeWalker(d.documentElement,NodeFilter.SHOW_TEXT);
+  for(let x;(x=w.nextNode());){if(x.parentElement.closest("script,style,.logo"))continue;const t=x.nodeValue.trim();if(map.has(t))x.nodeValue=x.nodeValue.replace(t,map.get(t))}
+  d.querySelectorAll("*").forEach(el=>WL_ATTRS.forEach(k=>{const v=el.getAttribute(k);if(v&&map.has(v.trim()))el.setAttribute(k,map.get(v.trim()))}));
+  d.querySelectorAll(".logo").forEach(el=>{const nu=map.get(el.textContent.trim());if(!nu)return;  // the new name, its last word (or letter) in the accent tag
+    const ws=nu.split(/\s+/),many=ws.length>1,tail=many?ws.pop():nu.slice(-1),head=many?ws.join(" ")+" ":nu.slice(0,-1);
+    const acc=[...el.querySelectorAll("span,b,em,i,strong")].find(e=>e.textContent.trim()),texts=[];
+    const tw=d.createTreeWalker(el,NodeFilter.SHOW_TEXT);for(let x;(x=tw.nextNode());)if(x.nodeValue.trim())texts.push(x);
+    const inAcc=texts.filter(x=>acc&&acc.contains(x)),plain=texts.filter(x=>!inAcc.includes(x));
+    plain.forEach((x,i)=>x.nodeValue=i?"":(acc?head:nu));inAcc.forEach((x,i)=>x.nodeValue=i===inAcc.length-1?tail:"")});
+  let html=(/^\s*<!doctype/i.test(tpl)?"<!doctype html>\n":"")+d.documentElement.outerHTML;
+  const at=html.indexOf("const EN = ");if(at>=0){const end=html.indexOf("};",at)+1;  // the EN switch gets the new texts' English
+    if(end>0)html=html.slice(0,at)+"const EN = "+JSON.stringify(Object.fromEntries(pairs.map(p=>[p[1],p[2]])))+html.slice(end)}
+  return html}
 async function runWeblume(cfg,skills,history,onEvent,signal){
   const lastU=[...history].reverse().find(m=>m.role==="user"),ut=lastU?String(lastU.content):"";
   const prev=wlLastSite(history.slice(0,-1));
@@ -488,7 +523,7 @@ async function runWeblume(cfg,skills,history,onEvent,signal){
     throw new Error("الطلب ده محتاج موديل سحابي (Gemini أو Mistral)، ومفيش مصدر منهم ردّ دلوقتي. راجع المفاتيح في الإعدادات أو النت وجرّب تاني.")}
   if(plan.mode==="chat"){const msg={role:"assistant",content:String(plan.reply)};history.push(msg);onEvent({type:"text",text:msg.content});return}
   if(plan.mode==="build"&&/phainora/i.test(String(cfg.model||""))){const site=await wlTemplateBuild(cfg,String(plan.brief),hp,onEvent,signal);
-    if(site){const c="🎨 اتبنى على تصميم من مواقع Phainora، بالمحتوى بتاعك.\n\n📄 index.html\n```html\n"+site+"\n```";history.push({role:"assistant",content:c});onEvent({type:"text",text:c});return}}
+    if(site){const c="🎨 اتبنى على تصميم من مواقع Phainora بنفس جودته، وكل النصوص بتاعتك.\n\n📄 index.html\n```html\n"+site+"\n```";history.push({role:"assistant",content:c});onEvent({type:"text",text:c});return}}
   onEvent({type:"step",phase:"بيكتب الكود",text:"💻 weblume بيكتب "+(plan.mode==="edit"?"التعديل":"الموقع")+": "+String(plan.brief).slice(0,300)});
   const user=plan.mode==="edit"?String(plan.brief)+"\n\n```html\n"+prev+"\n```":String(plan.brief);
   const msg=await chatOnce(cfg,[{role:"system",content:WL_SYS},{role:"user",content:user}],onEvent,signal,true);
